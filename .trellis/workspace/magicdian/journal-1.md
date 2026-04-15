@@ -68,3 +68,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: Harden interactive session detection
+
+**Date**: 2026-04-15
+**Task**: Harden interactive session detection
+**Branch**: `dev`
+
+### Summary
+
+Deduplicated active tty sessions, added sshd tty correlation fallback, and documented/tested the hardened sensor behavior after manual host verification.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a018f8b7313ffac3e357c75869ccdd00c1b29797` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
