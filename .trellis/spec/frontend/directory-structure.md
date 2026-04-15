@@ -1,54 +1,48 @@
 # Directory Structure
 
-> How frontend code is organized in this project.
+> Current frontend structure and the rule for introducing one later.
 
 ---
 
-## Overview
+## Current State
 
-<!--
-Document your project's frontend directory structure here.
+There is no frontend directory structure today.
 
-Questions to answer:
-- Where do components live?
-- How are features/modules organized?
-- Where are shared utilities?
-- How are assets organized?
--->
+Negative examples from the repository:
 
-(To be filled by the team)
+* no `web/`, `app/`, or `ui/` package,
+* no `src/components/`,
+* no `src/pages/`,
+* no frontend build config.
+
+The current `src/` directory is Rust backend code and must not be reused for browser code.
 
 ---
 
-## Directory Layout
+## If A Frontend Is Added Later
 
+Create a dedicated top-level package instead of mixing frontend files into the Rust crate.
+
+Recommended shape:
+
+```text
+web/
+├── src/
+├── public/
+├── package.json
+└── tsconfig.json
 ```
-<!-- Replace with your actual structure -->
-src/
-├── ...
-└── ...
-```
 
----
-
-## Module Organization
-
-<!-- How should new features be organized? -->
-
-(To be filled by the team)
+or another clearly named top-level package such as `ui/`.
 
 ---
 
 ## Naming Conventions
 
-<!-- File and folder naming rules -->
+Until a frontend exists:
 
-(To be filled by the team)
+* do not create placeholder component folders,
+* do not add frontend assets under backend source paths,
+* do not place TypeScript files under the Rust crate `src/`.
 
----
-
-## Examples
-
-<!-- Link to well-organized modules as examples -->
-
-(To be filled by the team)
+When a frontend is added, update this file with the actual chosen directory layout in the same task.

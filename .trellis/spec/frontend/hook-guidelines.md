@@ -1,51 +1,30 @@
 # Hook Guidelines
 
-> How hooks are used in this project.
+> Hook guidance for a repository that currently has no frontend runtime.
 
 ---
 
-## Overview
+## Current State
 
-<!--
-Document your project's hook conventions here.
+There are no custom hooks because there is no React or React-like frontend in the repository.
 
-Questions to answer:
-- What custom hooks do you have?
-- How do you handle data fetching?
-- What are the naming conventions?
-- How do you share stateful logic?
--->
+That means:
 
-(To be filled by the team)
+* no `use*` hooks exist,
+* no client-side data-fetching convention exists,
+* no shared UI stateful logic exists.
 
 ---
 
-## Custom Hook Patterns
+## Current Convention
 
-<!-- How to create and structure custom hooks -->
+Do not create hook abstractions speculatively while the project is still backend-only.
 
-(To be filled by the team)
+If a future task introduces React or another hook-based framework, document:
 
----
+* where hooks live,
+* how async data is fetched,
+* what must stay local vs shared,
+* how hook naming works.
 
-## Data Fetching
-
-<!-- How data fetching is handled (React Query, SWR, etc.) -->
-
-(To be filled by the team)
-
----
-
-## Naming Conventions
-
-<!-- Hook naming rules (use*, etc.) -->
-
-(To be filled by the team)
-
----
-
-## Common Mistakes
-
-<!-- Hook-related mistakes your team has made -->
-
-(To be filled by the team)
+Until then, this file exists mainly to stop AI from assuming hook patterns that are not present.

@@ -1,51 +1,30 @@
 # Quality Guidelines
 
-> Code quality standards for frontend development.
+> Quality expectations for any future frontend work in this repository.
 
 ---
 
-## Overview
+## Current State
 
-<!--
-Document your project's quality standards here.
+There is no frontend to lint, typecheck, or test today.
 
-Questions to answer:
-- What patterns are forbidden?
-- What linting rules do you enforce?
-- What are your testing requirements?
-- What code review standards apply?
--->
+The current repository quality checks are backend-only:
 
-(To be filled by the team)
+* `cargo fmt`
+* `cargo check`
+* `cargo test`
 
 ---
 
-## Forbidden Patterns
+## Current Convention
 
-<!-- Patterns that should never be used and why -->
+Do not claim frontend quality conventions already exist when the toolchain does not exist.
 
-(To be filled by the team)
+If a frontend package is introduced, the same task must add:
 
----
+* its format and lint commands,
+* its typecheck command,
+* its test strategy,
+* any accessibility checks if it renders UI.
 
-## Required Patterns
-
-<!-- Patterns that must always be used -->
-
-(To be filled by the team)
-
----
-
-## Testing Requirements
-
-<!-- What level of testing is expected -->
-
-(To be filled by the team)
-
----
-
-## Code Review Checklist
-
-<!-- What reviewers should check -->
-
-(To be filled by the team)
+Until then, backend checks remain the only real enforced quality gate in this repository.

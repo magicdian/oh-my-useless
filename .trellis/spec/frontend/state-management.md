@@ -1,51 +1,32 @@
 # State Management
 
-> How state is managed in this project.
+> State-management guidance for a project that currently exposes only CLI and daemon behavior.
 
 ---
 
-## Overview
+## Current State
 
-<!--
-Document your project's state management conventions here.
+There is no frontend state layer today.
 
-Questions to answer:
-- What state management solution do you use?
-- How is local vs global state decided?
-- How do you handle server state?
-- What are the patterns for derived state?
--->
+The active state in this repository is backend/runtime state:
 
-(To be filled by the team)
+* daemon runtime state in `src/runtime.rs`,
+* scheduling and pressure state in `src/policy.rs`,
+* operator configuration in `src/config.rs`.
+
+That is backend state, not client-side UI state.
 
 ---
 
-## State Categories
+## Current Convention
 
-<!-- Local state, global state, server state, URL state -->
+Do not describe backend runtime state as if it were frontend global state.
 
-(To be filled by the team)
+If a frontend is added later, decide explicitly:
 
----
+* what state remains daemon-only,
+* what state is fetched as read-only status,
+* what state is editable by operators,
+* whether a frontend state library is even needed.
 
-## When to Use Global State
-
-<!-- Criteria for promoting state to global -->
-
-(To be filled by the team)
-
----
-
-## Server State
-
-<!-- How server data is cached and synchronized -->
-
-(To be filled by the team)
-
----
-
-## Common Mistakes
-
-<!-- State management mistakes your team has made -->
-
-(To be filled by the team)
+No such frontend convention exists yet.

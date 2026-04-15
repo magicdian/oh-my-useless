@@ -1,59 +1,44 @@
 # Component Guidelines
 
-> How components are built in this project.
+> Component rules for a project that currently has no UI components.
 
 ---
 
-## Overview
+## Current State
 
-<!--
-Document your project's component conventions here.
+There are no frontend components in this repository today.
 
-Questions to answer:
-- What component patterns do you use?
-- How are props defined?
-- How do you handle composition?
-- What accessibility standards apply?
--->
+Evidence:
 
-(To be filled by the team)
+* no `.tsx` files,
+* no frontend framework dependency,
+* no component directory,
+* the runtime surface is a CLI daemon, not a browser app.
 
 ---
 
-## Component Structure
+## Current Convention
 
-<!-- Standard structure of a component file -->
+Do not invent components as part of backend work.
 
-(To be filled by the team)
+If a task truly adds a UI, the task must also define:
 
----
+* the chosen framework,
+* where components live,
+* how styling works,
+* what accessibility expectations apply.
 
-## Props Conventions
-
-<!-- How props should be defined and typed -->
-
-(To be filled by the team)
-
----
-
-## Styling Patterns
-
-<!-- How styles are applied (CSS modules, styled-components, Tailwind, etc.) -->
-
-(To be filled by the team)
+Until then, there is no valid "existing component pattern" to imitate.
 
 ---
 
-## Accessibility
+## When Components Are Introduced
 
-<!-- A11y requirements and patterns -->
+Use these minimum rules:
 
-(To be filled by the team)
+* colocate component code within the frontend package, not the Rust backend crate,
+* type props explicitly,
+* prefer accessible native elements before custom replacements,
+* document the chosen styling system in this file during the same task.
 
----
-
-## Common Mistakes
-
-<!-- Component-related mistakes your team has made -->
-
-(To be filled by the team)
+If these rules become real code, replace this placeholder guidance with repository-backed examples.
