@@ -103,8 +103,11 @@ Network section:
 #### Runtime behavior
 
 * The daemon samples host state every `check_interval_secs`.
-* Interactive-session detection uses active TTY/SSH sessions from `who -u --ips`.
+* Interactive-session detection uses active TTY sessions from `who -u --ips`.
 * A session is considered active only if its idle time is `<= active_tty_idle_secs`.
+* Active sessions are deduplicated by tty identity before counts are derived.
+* SSH counts prefer deduplicated `pts/*` terminals that can be confirmed by `ps` output containing `sshd: user@pts/N`.
+* If `ps` cannot confirm SSH terminals, the detector falls back to remote `pts/*` classification from `who`.
 * Once interaction is detected, the daemon remains in pause mode for `interactive_grace_secs` after the last active sample.
 * Worker scheduling uses randomized burst/rest windows from the relevant module section.
 
@@ -131,6 +134,8 @@ Network section:
 | Existing live PID in `/run/useless.pid` | Daemon start must fail instead of double-running |
 | Config reload parse failure | Keep old config active and log failure to stderr |
 | Missing systemd and missing init.d | `install` must fail with supported-service-manager error |
+| Duplicate active `who` rows for the same `pts/N` | Detector must count one active terminal, not multiple |
+| `ps` misses SSH tty correlation on a host | Detector must still fall back to remote `pts/*` counting instead of reporting zero SSH sessions |
 
 ---
 
@@ -157,6 +162,7 @@ Expected result:
 
 * config parses,
 * active SSH/TTY sessions older than 30 seconds idle no longer count as active,
+* duplicate observations of the same active `pts/N` count once,
 * daemon resumes roughly 30 seconds after the last active interaction sample.
 
 #### Base
@@ -199,7 +205,7 @@ At minimum, keep these checks passing when this contract changes:
 Unit-test expectations:
 
 * config parsing tests must assert new fields or validation rules in `src/config.rs`
-* sensor tests must assert remote/active TTY classification in `src/sensor.rs`
+* sensor tests must assert remote/active TTY classification, tty deduplication, `sshd` tty parsing, and fallback behavior in `src/sensor.rs`
 * policy tests must assert pause behavior for interactive sessions in `src/policy.rs`
 
 Manual-test expectations for install/runtime changes:
@@ -226,9 +232,11 @@ Assertion points:
 * Change daemon/session timing behavior in code without documenting the new config keys.
 * Add or rename install paths in `src/install.rs` without updating path contracts here.
 * Count all historical `pts/*` sessions as active forever.
+* Count duplicate rows for the same active `pts/N` as multiple interactive sessions.
 
 #### Correct
 
 * Add new config fields to `src/config.rs`, default config text, parser, validation, and this spec in one task.
 * Treat SSH detection as active-session classification, not raw historical login counting.
+* Deduplicate tty identities before deriving user-visible `tty` and `ssh` counters.
 * Keep install behavior explicit across binary path, config path, service-manager path, and PID path.

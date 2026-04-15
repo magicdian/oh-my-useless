@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -124,13 +125,23 @@ fn read_mem_available_percent() -> AppResult<u8> {
 }
 
 fn read_interactive_counts(active_tty_idle_secs: u64) -> (usize, usize) {
-    Command::new("who")
+    let active_sessions = Command::new("who")
         .args(["-u", "--ips"])
         .output()
         .ok()
         .and_then(|output| String::from_utf8(output.stdout).ok())
         .map(|stdout| parse_who_users(&stdout, active_tty_idle_secs))
-        .unwrap_or((0, 0))
+        .unwrap_or_default();
+
+    let ssh_ttys = Command::new("ps")
+        .args(["-eo", "args"])
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|stdout| parse_sshd_ttys(&stdout))
+        .unwrap_or_default();
+
+    counts_from_active_sessions(&active_sessions, &ssh_ttys)
 }
 
 fn read_network_totals() -> AppResult<(u64, u64)> {
@@ -167,9 +178,8 @@ fn read_u64(path: impl AsRef<Path>) -> AppResult<u64> {
     Ok(fs::read_to_string(path)?.trim().parse::<u64>()?)
 }
 
-fn parse_who_users(stdout: &str, active_tty_idle_secs: u64) -> (usize, usize) {
-    let mut tty_sessions = 0usize;
-    let mut ssh_sessions = 0usize;
+fn parse_who_users(stdout: &str, active_tty_idle_secs: u64) -> BTreeMap<String, bool> {
+    let mut sessions_by_tty: BTreeMap<String, bool> = BTreeMap::new();
 
     for line in stdout.lines() {
         let Some(session) = parse_who_user_line(line, active_tty_idle_secs) else {
@@ -179,11 +189,36 @@ fn parse_who_users(stdout: &str, active_tty_idle_secs: u64) -> (usize, usize) {
             continue;
         }
 
-        tty_sessions += 1;
-        if session.remote && session.tty.starts_with("pts/") {
-            ssh_sessions += 1;
-        }
+        sessions_by_tty
+            .entry(session.tty)
+            .and_modify(|remote| *remote = *remote || session.remote)
+            .or_insert(session.remote);
     }
+
+    sessions_by_tty
+}
+
+fn counts_from_active_sessions(
+    sessions_by_tty: &BTreeMap<String, bool>,
+    ssh_ttys: &BTreeSet<String>,
+) -> (usize, usize) {
+    let tty_sessions = sessions_by_tty.len();
+    let fallback_ssh_sessions = sessions_by_tty.values().filter(|remote| **remote).count();
+
+    let ssh_sessions = if ssh_ttys.is_empty() {
+        fallback_ssh_sessions
+    } else {
+        let correlated_ssh_sessions = sessions_by_tty
+            .iter()
+            .filter(|(tty, remote)| **remote && ssh_ttys.contains(*tty))
+            .count();
+
+        if correlated_ssh_sessions > 0 {
+            correlated_ssh_sessions
+        } else {
+            fallback_ssh_sessions
+        }
+    };
 
     (tty_sessions, ssh_sessions)
 }
@@ -298,9 +333,34 @@ fn looks_like_remote_host(value: &str) -> bool {
     value.contains('.') || value.contains(':') || value.chars().any(|ch| ch.is_ascii_alphabetic())
 }
 
+fn parse_sshd_ttys(stdout: &str) -> BTreeSet<String> {
+    stdout.lines().filter_map(parse_sshd_tty).collect()
+}
+
+fn parse_sshd_tty(line: &str) -> Option<String> {
+    if !line.contains("sshd:") {
+        return None;
+    }
+
+    let marker = "@pts/";
+    let start = line.find(marker)?;
+    let suffix = &line[start + 1..];
+    let tty = suffix
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(|ch: char| matches!(ch, ')' | ',' | ':' | ']'));
+
+    if tty.starts_with("pts/") {
+        Some(tty.to_string())
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{parse_idle_token, parse_who_users};
+    use super::{counts_from_active_sessions, parse_idle_token, parse_sshd_ttys, parse_who_users};
 
     #[test]
     fn counts_only_recent_remote_pts_sessions() {
@@ -310,7 +370,9 @@ root pts/1 2026-04-15 15:00 old 1001 (183.240.41.22)\n\
 root pts/2 2026-04-15 16:15 00:03 1002 (14.145.215.6)\n\
 root tty1 2026-04-15 16:10 00:10 1003\n";
 
-        let (tty_sessions, ssh_sessions) = parse_who_users(stdout, 300);
+        let sessions = parse_who_users(stdout, 300);
+        let ssh_ttys = parse_sshd_ttys("sshd: root@pts/0\nsshd: root [priv]\nsshd: root@pts/2\n");
+        let (tty_sessions, ssh_sessions) = counts_from_active_sessions(&sessions, &ssh_ttys);
         assert_eq!(tty_sessions, 3);
         assert_eq!(ssh_sessions, 2);
     }
@@ -321,9 +383,65 @@ root tty1 2026-04-15 16:10 00:10 1003\n";
 root pts/6 2026-04-15 16:30 00:02 1115311 183.240.41.22\n\
 root pts/7 2026-04-15 16:31 . 1116000 14.145.215.6\n";
 
-        let (tty_sessions, ssh_sessions) = parse_who_users(stdout, 300);
+        let sessions = parse_who_users(stdout, 300);
+        let ssh_ttys = parse_sshd_ttys("sshd: root@pts/6\nsshd: root@pts/7\n");
+        let (tty_sessions, ssh_sessions) = counts_from_active_sessions(&sessions, &ssh_ttys);
         assert_eq!(tty_sessions, 2);
         assert_eq!(ssh_sessions, 2);
+    }
+
+    #[test]
+    fn deduplicates_active_tty_rows() {
+        let stdout = "\
+ubuntu pts/1 2026-04-15 09:11 . 1234 (98.98.112.219)\n\
+root pts/1 2026-04-15 09:11 . 5678 (98.98.112.219)\n";
+
+        let sessions = parse_who_users(stdout, 300);
+        let ssh_ttys = parse_sshd_ttys("sshd: ubuntu@pts/1\n");
+        let (tty_sessions, ssh_sessions) = counts_from_active_sessions(&sessions, &ssh_ttys);
+        assert_eq!(tty_sessions, 1);
+        assert_eq!(ssh_sessions, 1);
+    }
+
+    #[test]
+    fn falls_back_to_remote_pts_when_ps_cannot_confirm_ssh() {
+        let stdout = "\
+root pts/5 2026-04-15 16:16 . 1110247 (183.240.41.22)\n\
+root tty1 2026-04-15 16:10 00:10 1003\n";
+
+        let sessions = parse_who_users(stdout, 300);
+        let ssh_ttys = parse_sshd_ttys("");
+        let (tty_sessions, ssh_sessions) = counts_from_active_sessions(&sessions, &ssh_ttys);
+        assert_eq!(tty_sessions, 2);
+        assert_eq!(ssh_sessions, 1);
+    }
+
+    #[test]
+    fn falls_back_to_remote_pts_when_ps_mismatches_active_ttys() {
+        let stdout = "\
+root pts/5 2026-04-15 16:16 . 1110247 (183.240.41.22)\n\
+root pts/6 2026-04-15 16:17 . 1110248 (183.240.41.22)\n";
+
+        let sessions = parse_who_users(stdout, 300);
+        let ssh_ttys = parse_sshd_ttys("sshd: root@pts/9\n");
+        let (tty_sessions, ssh_sessions) = counts_from_active_sessions(&sessions, &ssh_ttys);
+        assert_eq!(tty_sessions, 2);
+        assert_eq!(ssh_sessions, 2);
+    }
+
+    #[test]
+    fn parses_sshd_pts_targets() {
+        let ssh_ttys = parse_sshd_ttys(
+            "\
+sshd: ubuntu [priv]\n\
+sshd: ubuntu@pts/0\n\
+sshd: root@pts/1,\n\
+not-sshd: ignored\n",
+        );
+
+        assert!(ssh_ttys.contains("pts/0"));
+        assert!(ssh_ttys.contains("pts/1"));
+        assert_eq!(ssh_ttys.len(), 2);
     }
 
     #[test]
