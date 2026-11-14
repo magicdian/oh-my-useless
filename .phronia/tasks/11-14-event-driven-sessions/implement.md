@@ -2,16 +2,16 @@
 
 ## Checklist
 
-1. [ ] Add `SessionSet`/`Session`/`TtyId` to `domain`; move the interactive-grace rule and the existing policy test into the reducer.
-2. [ ] Add `inotify_init1`, `inotify_add_watch`, and `inotify_rm_watch` to `src/sys.rs`; define an `InotifyOps` trait for fakes.
-3. [ ] Implement `LogindSessionSource` with directory rescan and `.ref` filtering.
-4. [ ] Implement `UtmpSessionSource` with modify/self-delete handling and watch re-add.
-5. [ ] Implement `TtyIdleProbe` with the adaptive cadence and fail-safe rules.
-6. [ ] Move the existing `who`/`ps` parser into `LegacySessionSampler`; keep all six tests.
-7. [ ] Wire source selection (logind → utmp → timer) and publish `SensorCapabilities.inotify`.
-8. [ ] Extend `status` with the active session source, session count, and last session transition.
-9. [ ] Add tests: fake inotify events, temp-directory rescan, atime probe, re-add, fallback parity.
-10. [ ] Update README's interaction-tuning section and `.phronia/spec/backend/daemon-install-contracts.md` with the new source order and quiet-window semantics.
+1. [ ] Keep `SessionSet`/`Session` from child 1; the reducer's interactive-grace rule is already in place.
+2. [ ] Add `inotify_create`, `inotify_add_watch`, and `read_inotify` to `src/sys.rs` with Linux stubs.
+3. [ ] Implement `SessionSource` with the logind directory backend and `.ref` filtering.
+4. [ ] Add the utmp backend to the same source, including self-delete/move re-add.
+5. [ ] Implement `SessionState::probe` with the 5 s/30 s cadence and fail-safe stat handling; it re-emits a filtered `SessionSet`.
+6. [ ] Add `LegacySessionSampler`; stop `ProcfsSampler` from emitting `Signal::Sessions`.
+7. [ ] Wire `SessionRuntime` selection (logind → utmp → legacy sampler) and publish `sessions=inotify|who` in the capabilities line.
+8. [ ] Extend the state file/capabilities with the active session source; the summary already carries the session count.
+9. [ ] Add tests: logind directory scan, variable-length inotify event parsing, probe filtering, and tty atime; Linux-only tests are `cfg(target_os = "linux")`.
+10. [ ] Record the source order, probe cadence, and capability fields in `spec-delta.md`; do not edit `.phronia/spec/**`. README updates belong to child 5.
 
 ## Validation
 
@@ -19,6 +19,7 @@
 cargo fmt --check
 cargo check
 cargo test
+cargo check --tests --target x86_64-unknown-linux-gnu
 
 # normal path must not spawn who/ps
 sudo strace -f -e trace=execve -p "$(cat /run/useless.pid)" -c
