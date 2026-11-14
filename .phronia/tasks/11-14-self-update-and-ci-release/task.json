@@ -15,12 +15,24 @@
   "branch": "dev",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
+  "commit": "cb388650f21b51ea5f730810e1bed207ffcfb2a2",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {
+    "integration": {
+      "mode": "local",
+      "outcome": "landed",
+      "base_sha": "cb388650f21b51ea5f730810e1bed207ffcfb2a2",
+      "commit": "cb388650f21b51ea5f730810e1bed207ffcfb2a2",
+      "pr_url": null,
+      "verified": true,
+      "last_error": null,
+      "log_ref": ".phronia/.runtime/integration-logs/self-update-and-ci-release-2026-11-14T11-35-12-380Z.log",
+      "updated_at": "2026-11-14T11:35:13.754Z"
+    }
+  }
 }
