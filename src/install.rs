@@ -209,6 +209,8 @@ fn systemd_unit(config_path: &Path, config: &Config, total_mb: u64) -> String {
          Description=useless synthetic resource daemon\n\
          After=network-online.target\n\
          Wants=network-online.target\n\
+         StartLimitIntervalSec=300\n\
+         StartLimitBurst=5\n\
          \n\
          [Service]\n\
          Type=simple\n\
@@ -223,8 +225,6 @@ fn systemd_unit(config_path: &Path, config: &Config, total_mb: u64) -> String {
          ExecReload=/bin/kill -HUP $MAINPID\n\
          Restart=on-failure\n\
          RestartSec=10\n\
-         StartLimitIntervalSec=300\n\
-         StartLimitBurst=5\n\
          \n\
          [Install]\n\
          WantedBy=multi-user.target\n",
@@ -420,6 +420,13 @@ mod tests {
         assert!(unit.contains("IOSchedulingClass=idle"));
         assert!(unit.contains("Restart=on-failure"));
         assert!(unit.contains("Nice=19"));
+
+        let (unit_section, service_section) =
+            unit.split_once("[Service]").expect("service section");
+        assert!(unit_section.contains("StartLimitIntervalSec=300"));
+        assert!(unit_section.contains("StartLimitBurst=5"));
+        assert!(!service_section.contains("StartLimitIntervalSec"));
+        assert!(!service_section.contains("StartLimitBurst"));
     }
 
     #[test]

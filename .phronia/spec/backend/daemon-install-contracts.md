@@ -132,6 +132,10 @@ Sensor section:
 * A tty that goes idle leaves the active set but stays tracked; the next probe can re-activate it without a new login event.
 * A non-empty session set keeps `interactive_active` true regardless of the grace timer; `interactive_grace_secs` only governs resume after logout, followed by `resume_quiet_secs` and the slow-start ramp.
 * PSI triggers on `/proc/pressure/{cpu,memory,io}` drive suspension. A pressure event suspends immediately, and the host stays suspended for `resume_quiet_secs` after the last event before resuming.
+* A PSI trigger is one-shot per event. After handling a trigger, the source closes the watch (removing it from epoll) and re-arms a fresh trigger after `pressure_window_ms`. A fired trigger can stay readable after the pressure ends on some kernels; level-triggered polling would spin and reset the quiet window forever.
+* `EventSource::tick` (called by `Reactor::tick` once per daemon loop iteration) performs the re-arm. No separate thread or timer is added.
+* Trigger events whose `some_avg10_x100` and `full_avg10_x100` are both zero are ignored. They still close and schedule a re-arm; they must not emit `Signal::Pressure` or reset `resume_quiet_secs`.
+* `POLLERR`/`POLLHUP` and read failures close the watch and schedule a re-arm instead of reopening immediately.
 * After a suspension, duty ramps through 25%, 50%, and 100% across `resume_ramp_secs`.
 * When PSI is unavailable or trigger registration fails, the procfs sampler remains the fallback and `status` reports `psi=unavailable`.
 * `SIGHUP` reloads the config and rebuilds the reactor; `SIGINT`/`SIGTERM` shut down. On Linux these are read through `signalfd` after `SIG_BLOCK`.
@@ -154,7 +158,7 @@ Sensor section:
 * init.d is the fallback when `/etc/init.d` exists.
 * The systemd unit must contain `OOMScoreAdjust=1000`, `IOSchedulingClass=idle`, `CPUWeight=10`, and `Nice=19`.
 * The unit's `MemoryHigh` is `ceiling + 64M` and `MemoryMax` is `ceiling + 128M`, where `ceiling = min(MemTotal × memory.max_percent / 100, memory.max_absolute_mb?)`, clamped to at least 64 MB; a disabled memory module yields 64 MB.
-* The unit uses `Restart=on-failure`, `RestartSec=10`, `StartLimitIntervalSec=300`, and `StartLimitBurst=5`.
+* The unit places `StartLimitIntervalSec=300` and `StartLimitBurst=5` in `[Unit]`; systemd ignores them in `[Service]`. `Restart=on-failure` and `RestartSec=10` stay in `[Service]`.
 * `install` regenerates the unit from the current config; `reload` does not.
 * `uninstall --purge` may remove `/etc/useless`; plain `uninstall` must leave config in place.
 
@@ -211,6 +215,9 @@ Sensor section:
 | `ps` misses SSH tty correlation on a host | Detector must still fall back to remote `pts/*` counting instead of reporting zero SSH sessions |
 | `pressure_window_ms = 0` | Config validation must fail |
 | `pressure_enter_ms > pressure_window_ms` | Config validation must fail |
+| A fired PSI trigger stays readable | Close it and re-arm after the cooldown; no `epoll_wait`/`pread` busy loop. |
+| A trigger event has all-zero `avg10` readings | Emit no pressure signal; close and re-arm; do not reset the quiet window. |
+| A trigger is handled before its cooldown expires | A second `handle` returns empty; `tick` does not reopen before the cooldown. |
 | `reserve_percent >= 100` | Config validation must fail |
 | `[memory].chunk_mb = 0` | Config validation must fail |
 | `[network].probe_window_ms` outside 1..=2000 | Config validation must fail |
@@ -289,6 +296,7 @@ Unit-test expectations:
 * sensor tests must assert remote/active TTY classification, tty deduplication, `sshd` tty parsing, and fallback behavior in `src/adapters/procfs.rs`
 * policy tests must assert pause behavior for interactive sessions, pressure quiet-window/slow-start behavior, and parity with the pre-refactor decision table in `src/domain/reducer.rs`
 * PSI parsing and adapter tests live in `src/adapters/psi.rs`; reactor dispatch/timer tests in `src/runtime/reactor.rs`; journal/state tests in `src/runtime/journal.rs`
+* PSI tests must cover close-on-event, cooldown gating, re-arm via `tick`, zero-reading suppression, and the error path (`src/adapters/psi.rs`)
 * memory budget/ledger tests must assert the reserve/headroom/absolute caps and that growth stops when fresh headroom is insufficient (`src/domain/budget.rs`, `src/workers/memory.rs`)
 * unit-generation tests must assert the exact `MemoryHigh`/`MemoryMax` and `OOMScoreAdjust=1000` values (`src/install.rs`); cgroup discovery tests live in `src/adapters/cgroups.rs`
 * session tests must cover logind directory scanning, tty dedup, variable-length inotify event parsing, probe filtering/re-emission, atime handling, and watch re-add (`src/adapters/sessions.rs`); Linux-only cases are `cfg(target_os = "linux")`
@@ -329,6 +337,8 @@ Assertion points:
 * Publish a release asset name that the updater cannot match to its compile-time target.
 * Hand-edit the version in `Cargo.toml`, run `omv bump` locally, or push a manual release tag.
 * Make the release build depend on a tag push created by `GITHUB_TOKEN`.
+* Poll a fired PSI trigger with level-triggered epoll, or reopen it immediately on every event.
+* Place `StartLimitIntervalSec`/`StartLimitBurst` in `[Service]`.
 
 #### Correct
 
@@ -338,3 +348,4 @@ Assertion points:
 * Keep install behavior explicit across binary path, config path, service-manager path, and PID path.
 * Keep the release archive contract (`useless-<target>.tar.gz`, binary at root) in sync across `scripts/package.sh`, the release workflow, and `src/update.rs`.
 * Commit version surfaces only from the pipeline; keep PRs read-only for version truth; use bare OMV tags and normalize an optional `v` in the updater.
+* Close and cooldown-re-arm a fired PSI trigger; filter zero readings; verify start-limit placement by splitting the generated unit at `[Service]`.

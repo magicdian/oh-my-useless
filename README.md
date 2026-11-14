@@ -4,6 +4,23 @@
 
 It is **not** a benchmark or a load tester. The safety model is that the daemon is the first thing the host sacrifices, never the business.
 
+## Install
+
+```bash
+curl -fsSL https://github.com/magicdian/oh-my-useless/releases/latest/download/install.sh | sudo sh
+```
+
+The installer detects `x86_64` or `aarch64`, downloads the static musl archive, verifies its SHA-256, and runs `useless install` (systemd or init.d). It requires a Linux host and root.
+
+Pin a release with `USELESS_VERSION`; a leading `v` is accepted:
+
+```bash
+curl -fsSL https://github.com/magicdian/oh-my-useless/releases/latest/download/install.sh \
+  | sudo env USELESS_VERSION=2611.14.1 sh
+```
+
+`install.sh` is published with every release. For the archive layout and manual checksum verification, see [Releases and CI](#releases-and-ci).
+
 ## Safety model
 
 - **Event-first sensing.** PSI triggers, inotify session changes, signals, and deadlines arrive through one epoll reactor. Polling remains only for values the kernel cannot notify on, with a cadence tied to the policy mode.
@@ -201,12 +218,15 @@ Do not create tags manually: the build consumes the tag created by the pipeline 
 | `aarch64-unknown-linux-gnu` | ARM64 servers and Raspberry Pi OS. |
 | `aarch64-unknown-linux-musl` | Static ARM64. |
 
-Each release contains `useless-<target>.tar.gz` and `useless-<target>.tar.gz.sha256`. The archive has `useless`, `README.md`, and `LICENSE` at its root; extract it and run `sudo ./useless install`.
+Each release contains `useless-<target>.tar.gz`, `useless-<target>.sha256`, and `install.sh`. The archive has `useless`, `README.md`, and `LICENSE` at its root; extract it and run `sudo ./useless install`.
 
 To release, merge to `main` or run the Release workflow manually from `main`; the version is assigned by the pipeline. Manual verification:
 
 ```bash
-sha256sum -c useless-x86_64-unknown-linux-musl.tar.gz.sha256
+base="https://github.com/magicdian/oh-my-useless/releases/latest/download"
+curl -fsSLO "$base/useless-x86_64-unknown-linux-musl.tar.gz"
+curl -fsSLO "$base/useless-x86_64-unknown-linux-musl.sha256"
+sha256sum -c useless-x86_64-unknown-linux-musl.sha256
 ```
 
 Local packaging uses the same layout and naming:
@@ -217,7 +237,7 @@ Local packaging uses the same layout and naming:
 TARGET=aarch64-unknown-linux-musl ./scripts/package.sh
 ```
 
-This produces `dist/useless-<host-target>.tar.gz` and its `.sha256`. The local script does not publish anything; pushes to `main` drive the release workflow.
+This produces `dist/useless-<host-target>.tar.gz` and `dist/useless-<host-target>.sha256`. The local script does not publish anything; pushes to `main` drive the release workflow.
 
 ## Development
 

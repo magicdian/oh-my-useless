@@ -13,7 +13,7 @@ DIST_DIR="$ROOT_DIR/dist"
 NAME="useless-$TARGET"
 STAGE_DIR="$DIST_DIR/$NAME"
 ARCHIVE_PATH="$DIST_DIR/$NAME.tar.gz"
-SUM_PATH="$ARCHIVE_PATH.sha256"
+SUM_PATH="$DIST_DIR/$NAME.sha256"
 
 if [ -z "$TARGET" ]; then
   echo "could not determine the target triple; set TARGET explicitly" >&2
@@ -35,9 +35,9 @@ tar -C "$STAGE_DIR" -czf "$ARCHIVE_PATH" useless README.md LICENSE
 rm -rf "$STAGE_DIR"
 
 if command -v sha256sum >/dev/null 2>&1; then
-  (cd "$DIST_DIR" && sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
+  (cd "$DIST_DIR" && sha256sum "$NAME.tar.gz" > "$NAME.sha256")
 elif command -v shasum >/dev/null 2>&1; then
-  (cd "$DIST_DIR" && shasum -a 256 "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
+  (cd "$DIST_DIR" && shasum -a 256 "$NAME.tar.gz" > "$NAME.sha256")
 else
   echo "no SHA-256 tool found (need sha256sum or shasum)" >&2
   exit 1

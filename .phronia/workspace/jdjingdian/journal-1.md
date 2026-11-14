@@ -81,3 +81,78 @@ Adopted OMV as the single version truth in pipeline mode and moved release assig
 ### Next Steps
 
 - Push dev, merge into main, and watch the Release workflow produce 2611.14.1.
+
+
+## Session 3: Unblock and ship the OMV release pipeline
+<!-- phronia-session: v=2 fp=3cfd3df44ff3cbbb -->
+
+**Date**: 2026-11-14
+**Task**: Unblock and ship the OMV release pipeline
+**Branch**: `dev`
+
+### Summary
+
+Fixed the two CI blockers and published the first OMV-managed release, 2611.14.1.
+
+### Main Changes
+
+- Satisfied Rust 1.100 clippy lints in the Linux-only PSI/session/reactor code and replaced the fake PSI epoll descriptor (/dev/null returns EPERM) with eventfd.
+- The Release workflow bumped 2611.14.0 to 2611.14.1, committed chore(release), tagged it, and uploaded four Linux archives with sha256 sums.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `38e3d29` | fix(ci): satisfy clippy 1.100 lints on Linux paths |
+| `2a5c7d8` | fix(test): use eventfd for fake PSI watches |
+| `fe41833` | chore(release): 2611.14.1 |
+
+### Testing
+
+- [OK] Linux Rust 1.100 container: clippy -D warnings and all 94 tests pass.
+- [OK] dev CI green; Release run green; useless update --check reports 2611.14.0 -> 2611.14.1.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Continue work on dev at 2611.14.1; the next main merge produces 2611.14.2.
+
+
+## Session 4: Fix PSI trigger busy loop
+<!-- phronia-session: v=2 fp=8b8579b545c712d3 -->
+
+**Date**: 2026-11-14
+**Task**: Fix PSI trigger busy loop
+**Branch**: `dev`
+
+### Summary
+
+Made PSI trigger watches one-shot with a cooldown re-arm, ignored zero readings, and fixed the unit start-limit placement.
+
+### Main Changes
+
+- Added EventSource::tick and Reactor::tick; the daemon loop re-arms closed PSI watches after pressure_window_ms.
+- PSI handle now closes the watch, ignores all-zero avg10 events, and schedules re-arms on errors instead of reopening immediately.
+- Moved StartLimitIntervalSec/StartLimitBurst to [Unit] and added placement tests.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e0ef704` | fix(psi): re-arm fired triggers and move start limits to [Unit] |
+| `5fc5d26` | chore(task): record PSI fix plan and spec delta |
+
+### Testing
+
+- [OK] Linux Rust 1.100 container: clippy -D warnings and 96 tests pass, including close/re-arm/zero-reading/error cases.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Release 2611.14.2, install on oracle-sg-tx-forward, verify no spin and correct resume, then exercise update --check and a pinned update.

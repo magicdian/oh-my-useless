@@ -194,6 +194,7 @@ mod imp {
     use std::os::unix::io::RawFd;
     use std::path::Path;
     use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
 
     use crate::domain::signal::Signal;
     use crate::error::AppResult;
@@ -212,6 +213,8 @@ mod imp {
         tokens: Vec<u64>,
         enter_us: u64,
         window_us: u64,
+        cooldown: Duration,
+        rearm_at: Vec<Option<Instant>>,
         capability: Arc<Mutex<PsiCapability>>,
         epoll_fd: Option<RawFd>,
     }
@@ -224,17 +227,20 @@ mod imp {
             capability: Arc<Mutex<PsiCapability>>,
             specs: Vec<PsiSpec>,
         ) -> Self {
-            let tokens = (0..specs.len())
+            let count = specs.len();
+            let tokens = (0..count)
                 .map(|index| PSI_TOKEN_BASE + index as u64)
                 .collect();
 
             Self {
                 ops,
-                watches: vec![None; specs.len()],
+                watches: vec![None; count],
                 specs,
                 tokens,
                 enter_us: enter_ms.saturating_mul(1000),
                 window_us: window_ms.saturating_mul(1000),
+                cooldown: Duration::from_millis(window_ms.max(1)),
+                rearm_at: vec![None; count],
                 capability,
                 epoll_fd: None,
             }
@@ -278,25 +284,10 @@ mod imp {
             }
         }
 
-        fn rebuild(&mut self, index: usize) -> AppResult<Vec<Signal>> {
-            self.close_watch(index);
-            let Some(epoll_fd) = self.epoll_fd else {
-                return Ok(Vec::new());
-            };
-
-            match self.open_watch(index) {
-                Ok(fd) => match sys::epoll_add(epoll_fd, fd, self.tokens[index], WATCH_FLAGS) {
-                    Ok(()) => {
-                        self.watches[index] = Some(fd);
-                        Ok(Vec::new())
-                    }
-                    Err(error) => {
-                        self.ops.close(fd);
-                        Ok(vec![degraded(&self.specs[index].path, &error)])
-                    }
-                },
-                Err(error) => Ok(vec![degraded(&self.specs[index].path, &error)]),
-            }
+        /// A fired PSI trigger can stay readable on some kernels, so consume it
+        /// once and re-arm a fresh trigger after the window.
+        fn schedule_rearm(&mut self, index: usize) {
+            self.rearm_at[index] = Some(Instant::now() + self.cooldown);
         }
     }
 
@@ -357,7 +348,9 @@ mod imp {
                 return Ok(Vec::new());
             }
             if events & ERROR_FLAGS != 0 {
-                return self.rebuild(index);
+                self.close_watch(index);
+                self.schedule_rearm(index);
+                return Ok(Vec::new());
             }
 
             let Some(fd) = self.watches[index] else {
@@ -367,17 +360,65 @@ mod imp {
             let mut buffer = [0u8; 512];
             let count = match self.ops.read(fd, &mut buffer) {
                 Ok(count) => count,
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(Vec::new()),
-                Err(_) => return self.rebuild(index),
+                Err(error) => {
+                    self.close_watch(index);
+                    self.schedule_rearm(index);
+                    if error.kind() == io::ErrorKind::WouldBlock {
+                        return Ok(Vec::new());
+                    }
+                    return Ok(vec![degraded(&self.specs[index].path, &error)]);
+                }
             };
+
+            // Consume the notification. A fired trigger can remain readable, so
+            // close it and let `tick` arm a fresh one after the cooldown.
+            self.close_watch(index);
+            self.schedule_rearm(index);
+
             let text = String::from_utf8_lossy(&buffer[..count]);
             let reading = parse_pressure(&text).unwrap_or_default();
+            if reading.some_avg10_x100 == 0 && reading.full_avg10_x100 == 0 {
+                return Ok(Vec::new());
+            }
 
             Ok(vec![Signal::Pressure {
                 class: self.specs[index].class,
                 scope: self.specs[index].scope.clone(),
                 reading,
             }])
+        }
+
+        fn tick(&mut self) -> AppResult<()> {
+            let Some(epoll_fd) = self.epoll_fd else {
+                return Ok(());
+            };
+            let now = Instant::now();
+
+            for index in 0..self.specs.len() {
+                if self.watches[index].is_some() {
+                    continue;
+                }
+                let Some(at) = self.rearm_at[index] else {
+                    continue;
+                };
+                if now < at {
+                    continue;
+                }
+
+                self.rearm_at[index] = None;
+                match self.open_watch(index) {
+                    Ok(fd) => match sys::epoll_add(epoll_fd, fd, self.tokens[index], WATCH_FLAGS) {
+                        Ok(()) => self.watches[index] = Some(fd),
+                        Err(_) => {
+                            self.ops.close(fd);
+                            self.schedule_rearm(index);
+                        }
+                    },
+                    Err(_) => self.schedule_rearm(index),
+                }
+            }
+
+            Ok(())
         }
     }
 
@@ -478,6 +519,8 @@ mod linux_tests {
     use std::path::Path;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
+    use std::thread;
+    use std::time::Duration;
 
     use crate::domain::signal::{PressureClass, PressureScope, Signal};
     use crate::ports::EventSource;
@@ -547,11 +590,24 @@ mod linux_tests {
         }
     }
 
-    fn source(ops: Arc<FakePsiOps>) -> (PsiSource, Arc<Mutex<PsiCapability>>, sys::Fd) {
+    fn source_with_window(
+        ops: Arc<FakePsiOps>,
+        window_ms: u64,
+    ) -> (PsiSource, Arc<Mutex<PsiCapability>>, sys::Fd) {
         let capability = Arc::new(Mutex::new(PsiCapability::default()));
-        let source = PsiSource::new(ops, 50, 1000, Arc::clone(&capability), super::host_specs());
+        let source = PsiSource::new(
+            ops,
+            50,
+            window_ms,
+            Arc::clone(&capability),
+            super::host_specs(),
+        );
         let epoll = sys::epoll_create().expect("epoll");
         (source, capability, epoll)
+    }
+
+    fn source(ops: Arc<FakePsiOps>) -> (PsiSource, Arc<Mutex<PsiCapability>>, sys::Fd) {
+        source_with_window(ops, 1000)
     }
 
     #[test]
@@ -631,15 +687,66 @@ mod linux_tests {
     }
 
     #[test]
-    fn poll_error_rebuilds_the_watch() {
+    fn pressure_event_closes_and_rearms_after_cooldown() {
+        let ops = Arc::new(FakePsiOps::new(
+            b"some avg10=2.10 avg60=0.00 avg300=0.00 total=1\n",
+        ));
+        let (mut psi, _, epoll) = source_with_window(Arc::clone(&ops), 50);
+        psi.register(epoll.raw()).expect("register");
+        let before = ops.opens.load(Ordering::Relaxed);
+
+        let signals = psi
+            .handle(PSI_TOKEN_BASE, libc::EPOLLPRI as u32)
+            .expect("handle");
+        assert_eq!(signals.len(), 1);
+
+        // The fired watch is closed; no event is handled until it is re-armed.
+        assert!(
+            psi.handle(PSI_TOKEN_BASE, libc::EPOLLPRI as u32)
+                .expect("handle")
+                .is_empty()
+        );
+        psi.tick().expect("tick");
+        assert_eq!(ops.opens.load(Ordering::Relaxed), before);
+
+        thread::sleep(Duration::from_millis(80));
+        psi.tick().expect("tick");
+        assert_eq!(ops.opens.load(Ordering::Relaxed), before + 1);
+    }
+
+    #[test]
+    fn zero_reading_is_ignored() {
+        let ops = Arc::new(FakePsiOps::new(
+            b"some avg10=0.00 avg60=0.00 avg300=0.00 total=1\n",
+        ));
+        let (mut psi, _, epoll) = source_with_window(Arc::clone(&ops), 50);
+        psi.register(epoll.raw()).expect("register");
+        let before = ops.opens.load(Ordering::Relaxed);
+
+        let signals = psi
+            .handle(PSI_TOKEN_BASE, libc::EPOLLPRI as u32)
+            .expect("handle");
+        assert!(signals.is_empty());
+        assert_eq!(ops.opens.load(Ordering::Relaxed), before);
+
+        thread::sleep(Duration::from_millis(80));
+        psi.tick().expect("tick");
+        assert_eq!(ops.opens.load(Ordering::Relaxed), before + 1);
+    }
+
+    #[test]
+    fn poll_error_schedules_a_rearm() {
         let ops = Arc::new(FakePsiOps::new(b"some avg10=1.00 total=1\n"));
-        let (mut psi, _, epoll) = source(Arc::clone(&ops));
+        let (mut psi, _, epoll) = source_with_window(Arc::clone(&ops), 50);
         psi.register(epoll.raw()).expect("register");
         let before = ops.opens.load(Ordering::Relaxed);
 
         psi.handle(PSI_TOKEN_BASE, libc::EPOLLERR as u32)
             .expect("handle error");
 
+        assert_eq!(ops.opens.load(Ordering::Relaxed), before);
+        thread::sleep(Duration::from_millis(80));
+        psi.tick().expect("tick");
         assert_eq!(ops.opens.load(Ordering::Relaxed), before + 1);
     }
 

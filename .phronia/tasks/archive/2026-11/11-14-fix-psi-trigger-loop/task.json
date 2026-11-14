@@ -1,0 +1,47 @@
+{
+  "id": "fix-psi-trigger-loop",
+  "name": "fix-psi-trigger-loop",
+  "title": "Fix PSI trigger busy loop and unit start limits",
+  "description": "Fix the PSI trigger busy loop that keeps the daemon suspended and burns CPU on kernels where a fired trigger fd stays readable: close and re-arm watches on a cooldown, ignore zero readings, and move StartLimitIntervalSec/StartLimitBurst to [Unit]. Release 2611.14.2 and validate the update path on oracle-sg-tx-forward.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P0",
+  "creator": "jdjingdian",
+  "assignee": "jdjingdian",
+  "createdAt": "2026-11-14",
+  "completedAt": "2026-11-14",
+  "branch": null,
+  "base_branch": "dev",
+  "worktree_path": null,
+  "commit": "5fc5d261afd963f950217010fc738dbcde3419b1",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "integration": {
+      "mode": "local",
+      "outcome": "landed",
+      "base_sha": "5fc5d261afd963f950217010fc738dbcde3419b1",
+      "commit": "5fc5d261afd963f950217010fc738dbcde3419b1",
+      "pr_url": null,
+      "verified": true,
+      "last_error": null,
+      "log_ref": ".phronia/.runtime/integration-logs/fix-psi-trigger-loop-2026-11-14T13-33-25-823Z.log",
+      "updated_at": "2026-11-14T13:33:30.299Z"
+    },
+    "spec_sync": {
+      "status": "synced",
+      "commit": "f5b3c21e9d692155d8c4a2303961ca068e0e5f58",
+      "synced_at": "2026-11-14T13:34:22.332Z",
+      "refs": [
+        ".phronia/tasks/11-14-fix-psi-trigger-loop"
+      ],
+      "mode": "agent"
+    }
+  }
+}

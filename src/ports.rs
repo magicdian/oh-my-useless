@@ -43,4 +43,9 @@ pub trait JournalSink {
 pub trait EventSource {
     fn register(&mut self, epoll_fd: RawFd) -> AppResult<Vec<u64>>;
     fn handle(&mut self, token: u64, events: u32) -> AppResult<Vec<Signal>>;
+
+    /// Periodic hook for sources that must re-arm a one-shot descriptor.
+    fn tick(&mut self) -> AppResult<()> {
+        Ok(())
+    }
 }
