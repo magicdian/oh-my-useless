@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 6
+- **Total Sessions**: 7
 - **Last Active**: 2026-11-14
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~195 | Active |
+| `journal-1.md` | ~218 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 7 | 2026-11-14 | Event-driven sensor architecture: child 5 network gate and docs | `c941cc1`, `0bebecf` | `dev` |
 | 6 | 2026-11-14 | Event-driven sensor architecture: child 4 session events | `8a5afaf`, `16209a2` | `dev` |
 | 5 | 2026-11-14 | Event-driven sensor architecture: child 3 memory budget and cgroup scopes | `0d0cdd8`, `80a8af7` | `dev` |
 | 4 | 2026-11-14 | Event-driven sensor architecture: child 2 reactor and PSI | `15003cd`, `a35a01d` | `dev` |

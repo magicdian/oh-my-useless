@@ -193,3 +193,26 @@ Replaced per-sample who/ps detection with inotify logind/utmp sources, added a t
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: Event-driven sensor architecture: child 5 network gate and docs
+<!-- phronia-session: v=2 fp=1bf943fa33aa4ae3 -->
+
+**Date**: 2026-11-14
+**Task**: Event-driven sensor architecture: child 5 network gate and docs
+**Branch**: `dev`
+
+### Summary
+
+Added a just-in-time external-traffic estimator ahead of each network burst, a pure should_start_burst gate, two network config keys, unified counter reading in adapters/netstat, and rewrote the README around the new architecture and operations.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c941cc1` | feat(network): add just-in-time external traffic gate and refresh docs |
+| `0bebecf` | chore(task): record network JIT plan and child 5 spec delta |
+
+### Status
+
+[OK] **Completed**
