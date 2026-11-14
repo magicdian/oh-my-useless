@@ -33,6 +33,15 @@
       "last_error": null,
       "log_ref": ".phronia/.runtime/integration-logs/fix-self-update-asset-selection-2026-11-14T13-46-20-944Z.log",
       "updated_at": "2026-11-14T13:46:25.328Z"
+    },
+    "spec_sync": {
+      "status": "synced",
+      "commit": "ab67834589319f06a139a81c8bcd3eccaca55e7c",
+      "synced_at": "2026-11-14T13:46:59.447Z",
+      "refs": [
+        ".phronia/tasks/11-14-fix-self-update-asset-selection"
+      ],
+      "mode": "agent"
     }
   }
 }
