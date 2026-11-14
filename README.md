@@ -154,21 +154,45 @@ The normal session path is inotify-based on systemd hosts; `who`/`ps` is the fal
 useless version                       # print the installed version
 useless update --check                # query GitHub Releases; no write, no root
 sudo useless update                   # install the newest release and restart the service
-sudo useless update --version 0.2.0   # install or roll back to a specific release
+sudo useless update --version 2611.14.1   # install or roll back to a specific release
 sudo useless update --no-restart      # replace the binary, leave the service alone
 ```
 
 `update` writes `/usr/local/bin/useless` (not the executable you invoked it from) and verifies the SHA-256 digest GitHub publishes for the release asset before extracting. It restarts the service only when systemd or init.d reports it active. A failed restart is reported separately: the new binary is already in place, so re-run `systemctl restart useless`.
 
-The updater matches the release asset against the compile-time target of the running binary. Use the archive for your architecture; if a release does not contain that target, `update` fails instead of installing a foreign architecture. `--version` accepts both `0.2.0` and `v0.2.0`.
+The updater matches the release asset against the compile-time target of the running binary. Use the archive for your architecture; if a release does not contain that target, `update` fails instead of installing a foreign architecture. `--version` accepts both `2611.14.1` and `v2611.14.1`; both target the bare OMV tag.
 
 Set `USELESS_GITHUB_TOKEN` to raise the GitHub API rate limit. There is no background updater; updates are always explicit.
 
+## Versioning
+
+Versions are owned by OMV. `.omv/state.toml` is the single truth; `Cargo.toml`, `Cargo.lock`, and `src/generated/version.rs` are synchronized outputs. The project runs in `release_mode = "pipeline"`, so only the release job writes versions.
+
+Local development is read-only:
+
+```bash
+npm install -g @magicdian/omv@2611.6.1
+omv current        # version, logical date, release mode
+omv plan           # deterministic target drift and proposed writes
+omv sync --check   # exit non-zero on drift; never mutates
+```
+
+Never edit the version in `Cargo.toml` by hand and never run `omv bump` or `omv sync` locally: pipeline mode rejects both without `--as-release`. A pull request that changes `.omv/state.toml` or `.omv/finalizations.toml`, or whose manifest drifts from state, fails CI.
+
+The managed version is a date triplet, `YYMM.dd.BuildNumber` (for example `2611.14.1`), which is a valid semver value for the updater. The bootstrap state is `2611.14.0`; the first pipeline release is `2611.14.1`.
+
 ## Releases and CI
 
-`.github/workflows/ci.yml` runs `cargo fmt --all --check`, `cargo clippy --all-targets --locked -- -D warnings`, and `cargo test --all-targets --locked` on Linux, plus a macOS compile/test job.
+`.github/workflows/ci.yml` runs `cargo fmt --all --check`, `cargo clippy --all-targets --locked -- -D warnings`, and `cargo test --all-targets --locked` on Linux, a macOS compile/test job, and a version job that installs a pinned OMV, prints `omv current`, runs `omv sync --check`, and on pull requests rejects changes to `.omv/state.toml` / `.omv/finalizations.toml` and requires `release_mode = "pipeline"`.
 
-`.github/workflows/release.yml` runs on `v*` tags, repeats those checks, verifies that the tag matches `CARGO_PKG_VERSION`, and publishes four archives:
+`.github/workflows/release.yml` runs on a push to `main` or a manual `workflow_dispatch`:
+
+1. Runs the same tests.
+2. Reads `omv current`, runs `omv bump --expect <current> --now <UTC date> --as-release`, verifies with `omv sync --check`, refreshes `Cargo.lock` with `cargo metadata`, and refuses any changed path outside `.omv/`, `Cargo.toml`, `Cargo.lock`, or `src/generated/version.rs`.
+3. Commits `chore(release): <version>`, pushes to `main`, and creates the annotated tag `<version>`.
+4. Creates the GitHub Release and uploads four archives.
+
+Do not create tags manually: the build consumes the tag created by the pipeline in the same run, so a stray tag publishes nothing. `GITHUB_TOKEN` must be allowed to push to `main`; on a protected branch, substitute a GitHub App or fine-grained PAT with bypass permission as the release token.
 
 | Target | Notes |
 |---|---|
@@ -179,14 +203,7 @@ Set `USELESS_GITHUB_TOKEN` to raise the GitHub API rate limit. There is no backg
 
 Each release contains `useless-<target>.tar.gz` and `useless-<target>.tar.gz.sha256`. The archive has `useless`, `README.md`, and `LICENSE` at its root; extract it and run `sudo ./useless install`.
 
-To cut a release, bump `version` in `Cargo.toml`, commit, then tag the same commit:
-
-```bash
-git tag v0.2.0
-git push origin v0.2.0
-```
-
-Manual verification:
+To release, merge to `main` or run the Release workflow manually from `main`; the version is assigned by the pipeline. Manual verification:
 
 ```bash
 sha256sum -c useless-x86_64-unknown-linux-musl.tar.gz.sha256
@@ -200,7 +217,7 @@ Local packaging uses the same layout and naming:
 TARGET=aarch64-unknown-linux-musl ./scripts/package.sh
 ```
 
-This produces `dist/useless-<host-target>.tar.gz` and its `.sha256`. The local script does not publish anything; tags drive the release workflow.
+This produces `dist/useless-<host-target>.tar.gz` and its `.sha256`. The local script does not publish anything; pushes to `main` drive the release workflow.
 
 ## Development
 

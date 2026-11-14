@@ -1,0 +1,5 @@
+schema_version = 1
+logical_date = "2026-11-14"
+build_number = 0
+last_issued_version = "2611.14.0"
+last_time_source = "manual-confirmed"

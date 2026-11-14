@@ -156,7 +156,7 @@ fn normalize_tag(version: &str) -> AppResult<String> {
         return Err(boxed_error(format!("invalid version: {version}")));
     }
 
-    Ok(format!("v{bare}"))
+    Ok(bare.to_string())
 }
 
 #[cfg(test)]
@@ -164,11 +164,11 @@ mod tests {
     use super::normalize_tag;
 
     #[test]
-    fn normalizes_plain_and_v_prefixed_versions() {
-        assert_eq!(normalize_tag("0.2.0").expect("tag"), "v0.2.0");
-        assert_eq!(normalize_tag("v0.2.0").expect("tag"), "v0.2.0");
-        assert_eq!(normalize_tag("V0.2.0").expect("tag"), "v0.2.0");
-        assert_eq!(normalize_tag(" v0.2.0 ").expect("tag"), "v0.2.0");
+    fn normalizes_bare_and_v_prefixed_versions() {
+        assert_eq!(normalize_tag("2611.14.1").expect("tag"), "2611.14.1");
+        assert_eq!(normalize_tag("v2611.14.1").expect("tag"), "2611.14.1");
+        assert_eq!(normalize_tag("V2611.14.1").expect("tag"), "2611.14.1");
+        assert_eq!(normalize_tag(" v2611.14.1 ").expect("tag"), "2611.14.1");
     }
 
     #[test]
@@ -184,14 +184,14 @@ mod tests {
         use self_update::UpdateConfig;
 
         let install_path = std::path::Path::new(crate::config::INSTALL_BIN_PATH);
-        let updater = super::configured_updater("0.1.0", Some("0.2.0"), false)
+        let updater = super::configured_updater("2611.14.0", Some("2611.14.1"), false)
             .expect("updater should configure");
 
         assert_eq!(updater.bin_name(), "useless");
         assert_eq!(updater.bin_install_path(), install_path);
         assert_eq!(updater.bin_path_in_archive(), "useless");
-        assert_eq!(updater.current_version(), "0.1.0");
-        assert_eq!(updater.release_tag(), Some("v0.2.0"));
+        assert_eq!(updater.current_version(), "2611.14.0");
+        assert_eq!(updater.release_tag(), Some("2611.14.1"));
         assert!(updater.check_install_path_writable());
         assert!(updater.no_confirm());
         assert!(!updater.show_output());
