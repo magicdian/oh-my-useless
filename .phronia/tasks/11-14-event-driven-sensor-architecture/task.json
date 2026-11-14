@@ -1,0 +1,32 @@
+{
+  "id": "event-driven-sensor-architecture",
+  "name": "event-driven-sensor-architecture",
+  "title": "refactor: event-driven sensor architecture",
+  "description": "Parent task: replace polling-first sensing with an event-driven, layered sensor architecture; track the five child deliverables and final integration",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P0",
+  "creator": "magicdian",
+  "assignee": "magicdian",
+  "createdAt": "2026-11-14",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "11-14-domain-policy-ports",
+    "11-14-reactor-push-sensors",
+    "11-14-cgroup-memory-budget",
+    "11-14-event-driven-sessions",
+    "11-14-network-jit-and-docs"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

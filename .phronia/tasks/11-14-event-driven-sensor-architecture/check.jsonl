@@ -1,0 +1,4 @@
+{"file": ".phronia/agents/check.md", "reason": "Check agent procedure and reporting format"}
+{"file": ".phronia/spec/backend/quality-guidelines.md", "reason": "Integration quality bar"}
+{"file": ".phronia/spec/backend/daemon-install-contracts.md", "reason": "Cross-child contract consistency"}
+{"file": ".phronia/spec/guides/cross-layer-thinking-guide.md", "reason": "Config, install, runtime, and docs must agree"}

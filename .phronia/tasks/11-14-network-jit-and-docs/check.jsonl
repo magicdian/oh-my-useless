@@ -1,0 +1,5 @@
+{"file": ".phronia/agents/check.md", "reason": "Check agent procedure and reporting format"}
+{"file": ".phronia/spec/backend/quality-guidelines.md", "reason": "Build, test, and review checklist"}
+{"file": ".phronia/spec/backend/daemon-install-contracts.md", "reason": "Verify operator-visible contracts stay aligned"}
+{"file": ".phronia/tasks/11-14-event-driven-sensor-architecture/design.md", "reason": "Verify layer boundaries and acceptance invariants"}
+{"file": ".phronia/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify docs and config keys match the code"}

@@ -1,0 +1,7 @@
+{"file": ".phronia/workflow.md", "reason": "Project workflow and phase conventions"}
+{"file": ".phronia/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".phronia/spec/backend/daemon-install-contracts.md", "reason": "Reactor changes runtime behavior, status fields, and state files"}
+{"file": ".phronia/spec/backend/logging-guidelines.md", "reason": "Journal file and transition-only logging rules"}
+{"file": ".phronia/spec/backend/quality-guidelines.md", "reason": "Dependency justification and testing bar"}
+{"file": ".phronia/spec/backend/error-handling.md", "reason": "All syscall errors must map to AppResult"}
+{"file": ".phronia/tasks/11-14-event-driven-sensor-architecture/design.md", "reason": "Shared architecture and ADR-1 libc decision"}

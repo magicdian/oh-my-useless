@@ -1,0 +1,7 @@
+{"file": ".phronia/workflow.md", "reason": "Project workflow and phase conventions"}
+{"file": ".phronia/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".phronia/spec/backend/daemon-install-contracts.md", "reason": "New network keys and documentation contract"}
+{"file": ".phronia/spec/backend/logging-guidelines.md", "reason": "Gate health and transition logging"}
+{"file": ".phronia/spec/backend/quality-guidelines.md", "reason": "Testing and dependency bar"}
+{"file": ".phronia/spec/guides/cross-layer-thinking-guide.md", "reason": "Config, worker gate, and README must agree"}
+{"file": ".phronia/tasks/11-14-event-driven-sensor-architecture/design.md", "reason": "JIT headroom pattern mirrored for network"}

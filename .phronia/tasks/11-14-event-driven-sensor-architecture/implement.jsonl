@@ -1,0 +1,5 @@
+{"file": ".phronia/workflow.md", "reason": "Project workflow and phase conventions"}
+{"file": ".phronia/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".phronia/spec/backend/daemon-install-contracts.md", "reason": "Integration must preserve operator-visible contracts"}
+{"file": ".phronia/spec/backend/quality-guidelines.md", "reason": "Integration quality bar"}
+{"file": ".phronia/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-child integration review"}
