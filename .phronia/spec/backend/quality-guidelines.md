@@ -58,6 +58,7 @@ Current examples:
 * memory budget table in `src/domain/budget.rs`
 * ledger growth-gate and release tests in `src/workers/memory.rs`
 * unit-generation snapshot and cgroup discovery tests in `src/install.rs` and `src/adapters/cgroups.rs`
+* session-source tests in `src/adapters/sessions.rs` (logind scan, inotify event parsing, probe filtering, atime, watch re-add); Linux-only cases are `cfg(target_os = "linux")`
 
 If you add deterministic parsing, threshold, or scheduling logic, add or extend tests in the same module.
 

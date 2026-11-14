@@ -37,8 +37,9 @@ src/
 │   ├── mod.rs
 │   ├── cgroups.rs  # cgroup slice discovery and own-cgroup exclusion
 │   ├── psi.rs      # PSI trigger watches for host and cgroup scopes
+│   ├── sessions.rs # inotify session sources, tty idle probe, legacy sampler
 │   ├── signals.rs  # signalfd source
-│   └── procfs.rs   # /proc and who/ps observation; implements Sampler
+│   └── procfs.rs   # host metrics; who/ps parser used by the legacy sampler
 ├── error.rs        # AppResult / boxed_error helpers
 └── workers/
     ├── mod.rs      # worker registration

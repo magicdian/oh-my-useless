@@ -119,17 +119,17 @@ Sensor section:
 * Adapters emit `Signal` values and never call the reducer; workers consume directives from `runtime::Store` and never compute policy.
 * The procfs sampler in `src/adapters/procfs.rs` is the current observation source and the permanent fallback for later event-driven sources.
 * The daemon samples host state every `check_interval_secs`.
-* Interactive-session detection uses active TTY sessions from `who -u --ips`.
-* A session is considered active only if its idle time is `<= active_tty_idle_secs`.
-* Active sessions are deduplicated by tty identity before counts are derived.
-* SSH counts prefer deduplicated `pts/*` terminals that can be confirmed by `ps` output containing `sshd: user@pts/N`.
-* If `ps` cannot confirm SSH terminals, the detector falls back to remote `pts/*` classification from `who`.
-* Once interaction is detected, the daemon remains in pause mode for `interactive_grace_secs` after the last active sample.
+* Session detection order: inotify on `/run/systemd/sessions` (preferred), inotify on `/var/run/utmp` (fallback), then the `who -u --ips` + `ps -eo args` sampler at `check_interval_secs`.
+* The normal logind path only reads session files and must not spawn `who`/`ps`. The utmp backend runs the parser on watch events; the sampler is the last resort.
+* Session identity is the tty name (`pts/N` or `ttyN`); duplicate rows for the same tty count once.
+* A tty atime probe runs only while sessions exist: 5 s while any session is active, 30 s otherwise. It re-emits a `SessionSet` filtered to sessions within `active_tty_idle_secs`, and re-emits non-empty sets every tick so `last_interactive` stays fresh. A failed `stat` counts as active.
+* A tty that goes idle leaves the active set but stays tracked; the next probe can re-activate it without a new login event.
+* A non-empty session set keeps `interactive_active` true regardless of the grace timer; `interactive_grace_secs` only governs resume after logout, followed by `resume_quiet_secs` and the slow-start ramp.
 * PSI triggers on `/proc/pressure/{cpu,memory,io}` drive suspension. A pressure event suspends immediately, and the host stays suspended for `resume_quiet_secs` after the last event before resuming.
 * After a suspension, duty ramps through 25%, 50%, and 100% across `resume_ramp_secs`.
 * When PSI is unavailable or trigger registration fails, the procfs sampler remains the fallback and `status` reports `psi=unavailable`.
 * `SIGHUP` reloads the config and rebuilds the reactor; `SIGINT`/`SIGTERM` shut down. On Linux these are read through `signalfd` after `SIG_BLOCK`.
-* `useless status` appends a `daemon_state:` block read from `/run/useless/state`: `mode`, `reasons`, `scope`, `budget_mb`, `reserve_mb`, `available_mb`, `capabilities`, `last_transition`, and `summary`.
+* `useless status` appends a `daemon_state:` block read from `/run/useless/state`: `mode`, `reasons`, `scope`, `budget_mb`, `reserve_mb`, `available_mb`, `capabilities` (including `sessions=inotify|who`), `last_transition`, and `summary`.
 * State and journal paths are `/run/useless/state` (line-based `key=value`) and `/run/useless/journal.jsonl` (transition-only JSON Lines).
 * The memory budget is `min(MemTotal × max_percent × duty, MemAvailable − reserve, max_absolute_mb)`, where `reserve = max(reserve_mb, MemTotal × reserve_percent / 100)` and `0` disables the absolute cap.
 * The memory worker is a chunked `mmap` ledger: it grows one `chunk_mb` at a time only when a fresh `MemAvailable − reserve >= current + chunk` check passes, shrinks with `MADV_DONTNEED` + `munmap`, and releases everything when the directive is not allowed.
@@ -244,6 +244,7 @@ Unit-test expectations:
 * PSI parsing and adapter tests live in `src/adapters/psi.rs`; reactor dispatch/timer tests in `src/runtime/reactor.rs`; journal/state tests in `src/runtime/journal.rs`
 * memory budget/ledger tests must assert the reserve/headroom/absolute caps and that growth stops when fresh headroom is insufficient (`src/domain/budget.rs`, `src/workers/memory.rs`)
 * unit-generation tests must assert the exact `MemoryHigh`/`MemoryMax` and `OOMScoreAdjust=1000` values (`src/install.rs`); cgroup discovery tests live in `src/adapters/cgroups.rs`
+* session tests must cover logind directory scanning, tty dedup, variable-length inotify event parsing, probe filtering/re-emission, atime handling, and watch re-add (`src/adapters/sessions.rs`); Linux-only cases are `cfg(target_os = "linux")`
 * Linux-only tests are `cfg(target_os = "linux")`; run `cargo check --tests --target x86_64-unknown-linux-gnu` when developing on another host
 
 Manual-test expectations for install/runtime changes:
