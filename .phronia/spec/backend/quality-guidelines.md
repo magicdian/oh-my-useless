@@ -55,6 +55,9 @@ Current examples:
 
 * config parsing test in `src/config.rs`
 * interactive-session policy and behavior-parity tests in `src/domain/reducer.rs`
+* memory budget table in `src/domain/budget.rs`
+* ledger growth-gate and release tests in `src/workers/memory.rs`
+* unit-generation snapshot and cgroup discovery tests in `src/install.rs` and `src/adapters/cgroups.rs`
 
 If you add deterministic parsing, threshold, or scheduling logic, add or extend tests in the same module.
 
@@ -73,6 +76,10 @@ Install and uninstall mutate system paths. The guard in `src/install.rs::ensure_
 ### Do not duplicate config or policy constants
 
 If CPU, memory, and network workers need shared values, read them from shared state or config instead of re-declaring them.
+
+### Do not grow synthetic memory without a fresh headroom check
+
+A memory growth step must be rejected when `MemAvailable − reserve < current + chunk`. The check must read fresh `/proc/meminfo`; a cached sample is not acceptable. Ledger growth is chunked and release uses `MADV_DONTNEED` + `munmap`, never a large `Vec::resize`.
 
 ### Do not edit the legacy shell reference as a substitute for Rust work
 

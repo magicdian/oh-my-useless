@@ -35,12 +35,15 @@ src/
 │   └── journal.rs  # bounded transition history
 ├── adapters/
 │   ├── mod.rs
+│   ├── cgroups.rs  # cgroup slice discovery and own-cgroup exclusion
+│   ├── psi.rs      # PSI trigger watches for host and cgroup scopes
+│   ├── signals.rs  # signalfd source
 │   └── procfs.rs   # /proc and who/ps observation; implements Sampler
 ├── error.rs        # AppResult / boxed_error helpers
 └── workers/
     ├── mod.rs      # worker registration
     ├── cpu.rs      # CPU load worker
-    ├── memory.rs   # memory pressure worker
+    ├── memory.rs   # chunked mmap ledger with fresh headroom checks
     └── network.rs  # network load worker
 
 scripts/

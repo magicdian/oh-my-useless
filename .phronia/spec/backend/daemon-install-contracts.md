@@ -75,6 +75,8 @@ Global fields currently supported:
 * `pressure_window_ms`
 * `resume_quiet_secs`
 * `resume_ramp_secs`
+* `reserve_mb`
+* `reserve_percent`
 
 CPU section:
 
@@ -89,6 +91,8 @@ Memory section:
 
 * `[memory].enabled`
 * `[memory].max_percent`
+* `[memory].max_absolute_mb`
+* `[memory].chunk_mb`
 * `[memory].burst_secs_min`
 * `[memory].burst_secs_max`
 * `[memory].rest_secs_min`
@@ -104,6 +108,10 @@ Network section:
 * `[network].rest_secs_min`
 * `[network].rest_secs_max`
 * `[network].targets`
+
+Sensor section:
+
+* `[sensor].watch_slices`
 
 #### Runtime behavior
 
@@ -121,8 +129,12 @@ Network section:
 * After a suspension, duty ramps through 25%, 50%, and 100% across `resume_ramp_secs`.
 * When PSI is unavailable or trigger registration fails, the procfs sampler remains the fallback and `status` reports `psi=unavailable`.
 * `SIGHUP` reloads the config and rebuilds the reactor; `SIGINT`/`SIGTERM` shut down. On Linux these are read through `signalfd` after `SIG_BLOCK`.
-* `useless status` appends a `daemon_state:` block read from `/run/useless/state`: `mode`, `reasons`, `budget_mb`, `available_mb`, `capabilities`, `last_transition`, and `summary`.
+* `useless status` appends a `daemon_state:` block read from `/run/useless/state`: `mode`, `reasons`, `scope`, `budget_mb`, `reserve_mb`, `available_mb`, `capabilities`, `last_transition`, and `summary`.
 * State and journal paths are `/run/useless/state` (line-based `key=value`) and `/run/useless/journal.jsonl` (transition-only JSON Lines).
+* The memory budget is `min(MemTotal × max_percent × duty, MemAvailable − reserve, max_absolute_mb)`, where `reserve = max(reserve_mb, MemTotal × reserve_percent / 100)` and `0` disables the absolute cap.
+* The memory worker is a chunked `mmap` ledger: it grows one `chunk_mb` at a time only when a fresh `MemAvailable − reserve >= current + chunk` check passes, shrinks with `MADV_DONTNEED` + `munmap`, and releases everything when the directive is not allowed.
+* The daemon watches each configured cgroup slice's `{cpu,memory,io}.pressure`, excludes its own cgroup and ancestors, and refreshes the slice set every 60 s and on `SIGHUP`.
+* Per-cgroup pressure writes the slice name to `scope` in the state file and appends `scope=<slice>` to the summary.
 * Worker scheduling uses randomized burst/rest windows from the relevant module section.
 
 #### Install behavior
@@ -131,6 +143,10 @@ Network section:
 * `install` must ensure a config file exists before enabling the service.
 * systemd is preferred when `/run/systemd/system` exists and `systemctl` is available.
 * init.d is the fallback when `/etc/init.d` exists.
+* The systemd unit must contain `OOMScoreAdjust=1000`, `IOSchedulingClass=idle`, `CPUWeight=10`, and `Nice=19`.
+* The unit's `MemoryHigh` is `ceiling + 64M` and `MemoryMax` is `ceiling + 128M`, where `ceiling = min(MemTotal × memory.max_percent / 100, memory.max_absolute_mb?)`, clamped to at least 64 MB; a disabled memory module yields 64 MB.
+* The unit uses `Restart=on-failure`, `RestartSec=10`, `StartLimitIntervalSec=300`, and `StartLimitBurst=5`.
+* `install` regenerates the unit from the current config; `reload` does not.
 * `uninstall --purge` may remove `/etc/useless`; plain `uninstall` must leave config in place.
 
 ---
@@ -152,6 +168,8 @@ Network section:
 | `ps` misses SSH tty correlation on a host | Detector must still fall back to remote `pts/*` counting instead of reporting zero SSH sessions |
 | `pressure_window_ms = 0` | Config validation must fail |
 | `pressure_enter_ms > pressure_window_ms` | Config validation must fail |
+| `reserve_percent >= 100` | Config validation must fail |
+| `[memory].chunk_mb = 0` | Config validation must fail |
 
 ---
 
@@ -224,6 +242,8 @@ Unit-test expectations:
 * sensor tests must assert remote/active TTY classification, tty deduplication, `sshd` tty parsing, and fallback behavior in `src/adapters/procfs.rs`
 * policy tests must assert pause behavior for interactive sessions, pressure quiet-window/slow-start behavior, and parity with the pre-refactor decision table in `src/domain/reducer.rs`
 * PSI parsing and adapter tests live in `src/adapters/psi.rs`; reactor dispatch/timer tests in `src/runtime/reactor.rs`; journal/state tests in `src/runtime/journal.rs`
+* memory budget/ledger tests must assert the reserve/headroom/absolute caps and that growth stops when fresh headroom is insufficient (`src/domain/budget.rs`, `src/workers/memory.rs`)
+* unit-generation tests must assert the exact `MemoryHigh`/`MemoryMax` and `OOMScoreAdjust=1000` values (`src/install.rs`); cgroup discovery tests live in `src/adapters/cgroups.rs`
 * Linux-only tests are `cfg(target_os = "linux")`; run `cargo check --tests --target x86_64-unknown-linux-gnu` when developing on another host
 
 Manual-test expectations for install/runtime changes:
