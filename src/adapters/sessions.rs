@@ -120,18 +120,17 @@ mod linux {
 
     const LOGIND_DIR: &str = "/run/systemd/sessions";
     const UTMP_PATH: &str = "/var/run/utmp";
-    const WATCH_DIR: u32 = (libc::IN_CREATE
+    const WATCH_DIR: u32 = libc::IN_CREATE
         | libc::IN_DELETE
         | libc::IN_MOVED_TO
         | libc::IN_MOVED_FROM
-        | libc::IN_ATTRIB) as u32;
-    const WATCH_FILE: u32 = (libc::IN_MODIFY
+        | libc::IN_ATTRIB;
+    const WATCH_FILE: u32 = libc::IN_MODIFY
         | libc::IN_CLOSE_WRITE
         | libc::IN_ATTRIB
         | libc::IN_DELETE_SELF
-        | libc::IN_MOVE_SELF) as u32;
-    const REBUILD_FLAGS: u32 =
-        (libc::IN_IGNORED | libc::IN_DELETE_SELF | libc::IN_MOVE_SELF) as u32;
+        | libc::IN_MOVE_SELF;
+    const REBUILD_FLAGS: u32 = libc::IN_IGNORED | libc::IN_DELETE_SELF | libc::IN_MOVE_SELF;
 
     pub(super) struct SessionState {
         tracked: SessionSet,
@@ -246,23 +245,21 @@ mod linux {
     ) -> Option<(SessionSource, super::SessionMonitor)> {
         let fd = sys::inotify_create().ok()?;
         let logind = Path::new(LOGIND_DIR);
-        let backend;
-
-        if logind.is_dir() {
+        let backend = if logind.is_dir() {
             let wd = sys::inotify_add_watch(fd.raw(), logind, WATCH_DIR).ok()?;
-            backend = Backend::Logind {
+            Backend::Logind {
                 dir: logind.to_path_buf(),
                 wd,
-            };
+            }
         } else if Path::new(UTMP_PATH).exists() {
             let wd = sys::inotify_add_watch(fd.raw(), Path::new(UTMP_PATH), WATCH_FILE).ok()?;
-            backend = Backend::Utmp {
+            Backend::Utmp {
                 path: PathBuf::from(UTMP_PATH),
                 wd,
-            };
+            }
         } else {
             return None;
-        }
+        };
 
         let set = scan(&backend, active_tty_idle_secs);
         let state = Arc::new(Mutex::new(SessionState::new(set, active_tty_idle_secs)));
@@ -317,13 +314,14 @@ mod linux {
                 }
             }
 
-            if let Some(tty) = tty {
-                if active && (tty.starts_with("pts/") || tty.starts_with("tty")) {
-                    by_tty
-                        .entry(tty)
-                        .and_modify(|value| *value |= remote)
-                        .or_insert(remote);
-                }
+            if let Some(tty) = tty
+                && active
+                && (tty.starts_with("pts/") || tty.starts_with("tty"))
+            {
+                by_tty
+                    .entry(tty)
+                    .and_modify(|value| *value |= remote)
+                    .or_insert(remote);
             }
         }
 

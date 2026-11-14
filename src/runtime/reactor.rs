@@ -57,10 +57,10 @@ mod imp {
                     continue;
                 }
 
-                if let Some(index) = self.tokens.get(&event.token).copied() {
-                    if let Some(source) = self.sources.get_mut(index) {
-                        signals.extend(source.handle(event.token, event.events)?);
-                    }
+                if let Some(index) = self.tokens.get(&event.token).copied()
+                    && let Some(source) = self.sources.get_mut(index)
+                {
+                    signals.extend(source.handle(event.token, event.events)?);
                 }
             }
 
