@@ -33,6 +33,15 @@
       "last_error": null,
       "log_ref": ".phronia/.runtime/integration-logs/domain-policy-ports-2026-11-14T07-51-53-385Z.log",
       "updated_at": "2026-11-14T07:51:53.890Z"
+    },
+    "spec_sync": {
+      "status": "synced",
+      "commit": "fcc4ce5173e3342289af721f06179b753e3dff5d",
+      "synced_at": "2026-11-14T07:53:00.207Z",
+      "refs": [
+        ".phronia/tasks/11-14-domain-policy-ports"
+      ],
+      "mode": "agent"
     }
   }
 }
