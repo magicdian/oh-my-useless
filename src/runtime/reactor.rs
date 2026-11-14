@@ -66,6 +66,14 @@ mod imp {
 
             Ok(signals)
         }
+
+        /// Give sources a chance to re-arm one-shot descriptors.
+        pub fn tick(&mut self) -> AppResult<()> {
+            for source in &mut self.sources {
+                source.tick()?;
+            }
+            Ok(())
+        }
     }
 }
 
@@ -96,6 +104,10 @@ mod imp {
                 std::thread::sleep(wait);
             }
             Ok(Vec::new())
+        }
+
+        pub fn tick(&mut self) -> AppResult<()> {
+            Ok(())
         }
     }
 }

@@ -138,6 +138,7 @@ pub fn run(config_path: &Path) -> AppResult<()> {
         }
 
         let mut batch = reactor.wait(wait_until)?;
+        reactor.tick()?;
         if TERMINATE_FLAG.load(Ordering::Relaxed) {
             break;
         }
