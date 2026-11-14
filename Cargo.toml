@@ -1,6 +1,6 @@
 [package]
 name = "useless"
-version = "2611.14.1"
+version = "2611.14.2"
 edition = "2024"
 rust-version = "1.88"
 description = "Idle-capacity daemon that yields to real work"
