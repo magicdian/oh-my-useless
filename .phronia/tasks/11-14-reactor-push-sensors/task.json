@@ -15,12 +15,24 @@
   "branch": "dev",
   "base_branch": "dev",
   "worktree_path": null,
-  "commit": null,
+  "commit": "a35a01d3985844fc943190846e853d1d2be11845",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": "11-14-event-driven-sensor-architecture",
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {
+    "integration": {
+      "mode": "local",
+      "outcome": "landed",
+      "base_sha": "a35a01d3985844fc943190846e853d1d2be11845",
+      "commit": "a35a01d3985844fc943190846e853d1d2be11845",
+      "pr_url": null,
+      "verified": true,
+      "last_error": null,
+      "log_ref": ".phronia/.runtime/integration-logs/reactor-push-sensors-2026-11-14T08-29-51-032Z.log",
+      "updated_at": "2026-11-14T08:29:51.655Z"
+    }
+  }
 }
