@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 4
+- **Total Sessions**: 5
 - **Last Active**: 2026-11-14
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~158 | Active |
+| `journal-1.md` | ~194 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 5 | 2026-11-14 | Fix self-update asset selection | `550ac91`, `1098717` | `dev` |
 | 4 | 2026-11-14 | Fix PSI trigger busy loop | `e0ef704`, `5fc5d26` | `dev` |
 | 3 | 2026-11-14 | Unblock and ship the OMV release pipeline | `38e3d29`, `2a5c7d8`, `fe41833` | `dev` |
 | 2 | 2026-11-14 | OMV pipeline versioning | `05413ec`, `e26b0cd` | `dev` |
