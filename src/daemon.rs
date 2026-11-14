@@ -1,18 +1,20 @@
 use std::fs;
 use std::path::Path;
 use std::process;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::adapters::ProcfsSampler;
-use crate::config::{PID_FILE_PATH, load_config};
-use crate::domain::{Mode, PolicyOutput, PolicyState, ReasonCode, Signal, reduce};
+use crate::adapters::{ProcfsSampler, PsiCapability, PsiSource, RealPsiOps, SignalSource};
+use crate::config::{Config, JOURNAL_FILE_PATH, PID_FILE_PATH, STATE_FILE_PATH, load_config};
+use crate::domain::{
+    Mode, PolicyOutput, PolicyState, PressureClass, ReasonCode, Signal, reduce, sampler_cadence,
+};
 use crate::error::{AppResult, boxed_error};
 use crate::ports::{Clock, Sampler, SystemClock};
-use crate::runtime::Store;
-use crate::runtime::journal::{Journal, Transition};
+use crate::runtime::journal::{Journal, StateSnapshot, Transition, write_state};
+use crate::runtime::{Reactor, Store};
+use crate::sys;
 use crate::workers;
 
 static TERMINATE_FLAG: AtomicBool = AtomicBool::new(false);
@@ -23,11 +25,15 @@ const SIGINT: i32 = 2;
 const SIGTERM: i32 = 15;
 
 unsafe extern "C" {
+    #[cfg(not(target_os = "linux"))]
     fn signal(signum: i32, handler: extern "C" fn(i32)) -> usize;
     fn kill(pid: i32, sig: i32) -> i32;
 }
 
 pub fn run(config_path: &Path) -> AppResult<()> {
+    #[cfg(target_os = "linux")]
+    sys::block_signals(&[SIGHUP, SIGINT, SIGTERM])?;
+    #[cfg(not(target_os = "linux"))]
     install_signal_handlers();
 
     let config = Arc::new(load_config(config_path)?);
@@ -45,24 +51,37 @@ pub fn run(config_path: &Path) -> AppResult<()> {
     let pid_guard = PidGuard::acquire(Path::new(PID_FILE_PATH))?;
     let worker_handles = workers::spawn_all(store.clone());
 
+    let capability = Arc::new(Mutex::new(PsiCapability::default()));
     let mut current_config = config;
-    let mut journal = Journal::new(512);
+    let mut reactor = build_reactor(&current_config, &capability)?;
+    let mut capabilities = Capabilities::detect(&capability);
+
+    let mut journal = Journal::with_file(512, Path::new(JOURNAL_FILE_PATH).to_path_buf());
     let mut last_summary = String::new();
     let mut last_mode = Mode::Suspended;
+    let mut last_transition = "startup".to_string();
+    let mut last_state_write: Option<Instant> = None;
+    let mut next_sample = Instant::now();
 
     eprintln!(
         "[useless] daemon started with sensor backend {} and config {}",
         sampler.backend_name(),
         config_path.display()
     );
+    eprintln!("[useless] sensors: {}", capabilities.label());
 
     while !TERMINATE_FLAG.load(Ordering::Relaxed) {
         if RELOAD_FLAG.swap(false, Ordering::Relaxed) {
             match load_config(config_path) {
                 Ok(updated) => {
                     current_config = Arc::new(updated);
-                    store.replace_config(current_config.clone());
+                    store.replace_config(Arc::clone(&current_config));
+                    reactor = build_reactor(&current_config, &capability)?;
+                    capabilities = Capabilities::detect(&capability);
+                    last_summary.clear();
+                    next_sample = clock.now();
                     eprintln!("[useless] reloaded config from {}", config_path.display());
+                    eprintln!("[useless] sensors: {}", capabilities.label());
                 }
                 Err(error) => {
                     eprintln!(
@@ -74,51 +93,83 @@ pub fn run(config_path: &Path) -> AppResult<()> {
             }
         }
 
+        let wait_until = next_sample;
+        let mut batch = reactor.wait(wait_until)?;
+        if TERMINATE_FLAG.load(Ordering::Relaxed) {
+            break;
+        }
+
         let now = clock.now();
-        match sampler.sample(current_config.global.active_tty_idle_secs) {
-            Ok(signals) => {
-                let mut labels = Vec::with_capacity(signals.len());
-                let mut output = None;
-
-                for signal in &signals {
-                    labels.push(signal_name(signal));
-                    output = Some(reduce(&mut policy, signal, &current_config, now));
-                }
-
-                if let Some(output) = output {
-                    let label = labels.join("+");
-                    publish(
-                        &store,
-                        &mut journal,
-                        &mut last_summary,
-                        &mut last_mode,
-                        output,
-                        &label,
-                        mem_available_bytes(&policy),
-                    );
-                }
-            }
-            Err(error) => {
-                let signal = Signal::SourceDegraded {
+        if now >= wait_until {
+            match sampler.sample(current_config.global.active_tty_idle_secs) {
+                Ok(mut sample) => batch.append(&mut sample),
+                Err(error) => batch.push(Signal::SourceDegraded {
                     source: sampler.backend_name().to_string(),
                     message: error.to_string(),
-                };
-                let output = reduce(&mut policy, &signal, &current_config, now);
-                publish(
-                    &store,
-                    &mut journal,
-                    &mut last_summary,
-                    &mut last_mode,
-                    output,
-                    signal_name(&signal),
-                    mem_available_bytes(&policy),
-                );
+                }),
             }
         }
 
-        sleep_with_interrupts(Duration::from_secs(
-            current_config.global.check_interval_secs,
-        ));
+        if batch.is_empty() {
+            continue;
+        }
+
+        let has_pressure = batch
+            .iter()
+            .any(|signal| matches!(signal, Signal::Pressure { .. }));
+        let mut labels = Vec::with_capacity(batch.len());
+        let mut output = None;
+
+        for signal in &batch {
+            labels.push(signal_name(signal));
+            output = Some(reduce(&mut policy, signal, &current_config, now));
+        }
+
+        let Some(output) = output else {
+            continue;
+        };
+        let label = labels.join("+");
+        let available = mem_available_bytes(&policy);
+
+        if output.summary != last_summary {
+            eprintln!("[useless] {}", output.summary);
+            last_summary = output.summary.clone();
+        }
+
+        let mode_before = last_mode;
+        let mode_changed = output.mode != mode_before;
+        if mode_changed {
+            journal.record(Transition {
+                at: SystemTime::now(),
+                signal: label.clone(),
+                from: mode_before,
+                to: output.mode,
+                reasons: output.reasons.clone(),
+                budget_bytes: output.budget.target_bytes,
+                mem_available_bytes: available,
+            });
+            last_transition = format!("{} -> {} ({label})", mode_before.key(), output.mode.key());
+            last_mode = output.mode;
+        }
+
+        let due_state = last_state_write
+            .map(|at| at.elapsed() >= Duration::from_secs(30))
+            .unwrap_or(true);
+        if mode_changed || due_state {
+            let snapshot = state_snapshot(&output, &capabilities, &last_transition, available);
+            let _ = write_state(Path::new(STATE_FILE_PATH), &snapshot);
+            last_state_write = Some(Instant::now());
+        }
+
+        let output_mode = output.mode;
+        store.publish(output);
+
+        let base_secs = current_config.global.check_interval_secs.max(1);
+        next_sample = if has_pressure {
+            now + Duration::from_secs(base_secs)
+        } else {
+            now + sampler_cadence(output_mode, base_secs)
+        };
     }
 
     store.shutdown();
@@ -131,34 +182,75 @@ pub fn run(config_path: &Path) -> AppResult<()> {
     Ok(())
 }
 
-fn publish(
-    store: &Store,
-    journal: &mut Journal,
-    last_summary: &mut String,
-    last_mode: &mut Mode,
-    output: PolicyOutput,
-    signal: &str,
-    mem_available_bytes: u64,
-) {
-    if output.summary != *last_summary {
-        eprintln!("[useless] {}", output.summary);
-        *last_summary = output.summary.clone();
+fn build_reactor(config: &Config, capability: &Arc<Mutex<PsiCapability>>) -> AppResult<Reactor> {
+    let mut reactor = Reactor::new()?;
+    reactor.add(Box::new(SignalSource::new(
+        2,
+        &TERMINATE_FLAG,
+        &RELOAD_FLAG,
+    )?))?;
+
+    let psi = PsiSource::new(
+        Arc::new(RealPsiOps),
+        config.global.pressure_enter_ms,
+        config.global.pressure_window_ms,
+        Arc::clone(capability),
+    );
+    reactor.add(Box::new(psi))?;
+
+    Ok(reactor)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Capabilities {
+    psi: PsiCapability,
+    cgroup_v2: bool,
+    inotify: bool,
+}
+
+impl Capabilities {
+    fn detect(capability: &Arc<Mutex<PsiCapability>>) -> Self {
+        Self {
+            psi: *capability.lock().expect("psi capability"),
+            cgroup_v2: Path::new("/sys/fs/cgroup/cgroup.controllers").exists(),
+            inotify: sys::inotify_probe(),
+        }
     }
 
-    if output.mode != *last_mode {
-        journal.record(Transition {
-            at: SystemTime::now(),
-            signal: signal.to_string(),
-            from: *last_mode,
-            to: output.mode,
-            reasons: output.reasons.clone(),
-            budget_bytes: output.budget.target_bytes,
-            mem_available_bytes,
-        });
-        *last_mode = output.mode;
+    fn label(&self) -> String {
+        format!(
+            "{} cgroup_v2={} inotify={}",
+            self.psi.label(),
+            status(self.cgroup_v2),
+            status(self.inotify)
+        )
     }
+}
 
-    store.publish(output);
+fn status(value: bool) -> &'static str {
+    if value { "ok" } else { "unavailable" }
+}
+
+fn state_snapshot(
+    output: &PolicyOutput,
+    capabilities: &Capabilities,
+    last_transition: &str,
+    available: u64,
+) -> StateSnapshot {
+    StateSnapshot {
+        mode: output.mode.key(),
+        reasons: output
+            .reasons
+            .iter()
+            .map(|reason| reason.label())
+            .collect::<Vec<_>>()
+            .join(","),
+        summary: output.summary.clone(),
+        budget_mb: output.budget.target_bytes / (1024 * 1024),
+        available_mb: available / (1024 * 1024),
+        capabilities: capabilities.label(),
+        last_transition: last_transition.to_string(),
+    }
 }
 
 fn mem_available_bytes(policy: &PolicyState) -> u64 {
@@ -173,6 +265,11 @@ fn signal_name(signal: &Signal) -> &'static str {
     match signal {
         Signal::Sample(_) => "sample",
         Signal::Sessions(_) => "sessions",
+        Signal::Pressure { class, .. } => match class {
+            PressureClass::Cpu => "psi:cpu",
+            PressureClass::Memory => "psi:memory",
+            PressureClass::Io => "psi:io",
+        },
         Signal::SourceDegraded { .. } => "source_degraded",
     }
 }
@@ -187,16 +284,7 @@ pub fn send_reload_from_pidfile() -> AppResult<()> {
     Ok(())
 }
 
-fn sleep_with_interrupts(duration: Duration) {
-    let deadline = Instant::now() + duration;
-    while Instant::now() < deadline {
-        if TERMINATE_FLAG.load(Ordering::Relaxed) || RELOAD_FLAG.load(Ordering::Relaxed) {
-            break;
-        }
-        thread::sleep(Duration::from_millis(200));
-    }
-}
-
+#[cfg(not(target_os = "linux"))]
 fn install_signal_handlers() {
     unsafe {
         signal(SIGHUP, handle_signal);
@@ -205,6 +293,7 @@ fn install_signal_handlers() {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
 extern "C" fn handle_signal(signal_number: i32) {
     match signal_number {
         SIGHUP => RELOAD_FLAG.store(true, Ordering::Relaxed),

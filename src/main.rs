@@ -7,6 +7,7 @@ mod error;
 mod install;
 mod ports;
 mod runtime;
+mod sys;
 mod workers;
 
 use cli::{Command, parse_args, usage};

@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::config::{
-    DEFAULT_CONFIG_DIR, INITD_SCRIPT_PATH, INSTALL_BIN_PATH, PID_FILE_PATH, SYSTEMD_UNIT_PATH,
-    ensure_default_config, load_config,
+    DEFAULT_CONFIG_DIR, INITD_SCRIPT_PATH, INSTALL_BIN_PATH, PID_FILE_PATH, STATE_FILE_PATH,
+    SYSTEMD_UNIT_PATH, ensure_default_config, load_config,
 };
 use crate::daemon;
 use crate::error::{AppResult, boxed_error};
@@ -126,6 +126,16 @@ pub fn status(config_path: &Path) -> AppResult<()> {
         ServiceManager::None => {
             println!("pid_present: {}", Path::new(PID_FILE_PATH).exists());
         }
+    }
+
+    match fs::read_to_string(STATE_FILE_PATH) {
+        Ok(text) => {
+            println!("daemon_state:");
+            for line in text.lines() {
+                println!("  {line}");
+            }
+        }
+        Err(_) => println!("daemon_state: unavailable"),
     }
 
     Ok(())

@@ -10,6 +10,8 @@ pub const INSTALL_BIN_PATH: &str = "/usr/local/bin/useless";
 pub const SYSTEMD_UNIT_PATH: &str = "/etc/systemd/system/useless.service";
 pub const INITD_SCRIPT_PATH: &str = "/etc/init.d/useless";
 pub const PID_FILE_PATH: &str = "/run/useless.pid";
+pub const STATE_FILE_PATH: &str = "/run/useless/state";
+pub const JOURNAL_FILE_PATH: &str = "/run/useless/journal.jsonl";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Preset {
@@ -57,6 +59,10 @@ pub struct GlobalConfig {
     pub pause_load_percent: u8,
     pub caution_mem_available_percent: u8,
     pub pause_mem_available_percent: u8,
+    pub pressure_enter_ms: u64,
+    pub pressure_window_ms: u64,
+    pub resume_quiet_secs: u64,
+    pub resume_ramp_secs: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -111,6 +117,10 @@ impl Config {
                     pause_load_percent: 70,
                     caution_mem_available_percent: 25,
                     pause_mem_available_percent: 12,
+                    pressure_enter_ms: 50,
+                    pressure_window_ms: 1000,
+                    resume_quiet_secs: 120,
+                    resume_ramp_secs: 120,
                 },
                 cpu: CpuConfig {
                     enabled: true,
@@ -156,6 +166,10 @@ impl Config {
                     pause_load_percent: 82,
                     caution_mem_available_percent: 20,
                     pause_mem_available_percent: 10,
+                    pressure_enter_ms: 50,
+                    pressure_window_ms: 1000,
+                    resume_quiet_secs: 90,
+                    resume_ramp_secs: 90,
                 },
                 cpu: CpuConfig {
                     enabled: true,
@@ -201,6 +215,10 @@ impl Config {
                     pause_load_percent: 90,
                     caution_mem_available_percent: 18,
                     pause_mem_available_percent: 8,
+                    pressure_enter_ms: 40,
+                    pressure_window_ms: 1000,
+                    resume_quiet_secs: 60,
+                    resume_ramp_secs: 90,
                 },
                 cpu: CpuConfig {
                     enabled: true,
@@ -318,6 +336,18 @@ pub fn parse_config(content: &str) -> AppResult<Config> {
             (None, "pause_mem_available_percent") => {
                 config.global.pause_mem_available_percent = parse_u8(&entry.value, line)?
             }
+            (None, "pressure_enter_ms") => {
+                config.global.pressure_enter_ms = parse_u64(&entry.value, line)?
+            }
+            (None, "pressure_window_ms") => {
+                config.global.pressure_window_ms = parse_u64(&entry.value, line)?
+            }
+            (None, "resume_quiet_secs") => {
+                config.global.resume_quiet_secs = parse_u64(&entry.value, line)?
+            }
+            (None, "resume_ramp_secs") => {
+                config.global.resume_ramp_secs = parse_u64(&entry.value, line)?
+            }
             (Some("cpu"), "enabled") => config.cpu.enabled = parse_bool(&entry.value, line)?,
             (Some("cpu"), "max_percent") => config.cpu.max_percent = parse_u8(&entry.value, line)?,
             (Some("cpu"), "burst_secs_min") => {
@@ -399,6 +429,10 @@ pub fn default_config_text() -> String {
          pause_load_percent = {pause_load}\n\
          caution_mem_available_percent = {caution_mem}\n\
          pause_mem_available_percent = {pause_mem}\n\
+         pressure_enter_ms = {pressure_enter}\n\
+         pressure_window_ms = {pressure_window}\n\
+         resume_quiet_secs = {resume_quiet}\n\
+         resume_ramp_secs = {resume_ramp}\n\
          \n\
          [cpu]\n\
          enabled = {cpu_enabled}\n\
@@ -434,6 +468,10 @@ pub fn default_config_text() -> String {
         pause_load = config.global.pause_load_percent,
         caution_mem = config.global.caution_mem_available_percent,
         pause_mem = config.global.pause_mem_available_percent,
+        pressure_enter = config.global.pressure_enter_ms,
+        pressure_window = config.global.pressure_window_ms,
+        resume_quiet = config.global.resume_quiet_secs,
+        resume_ramp = config.global.resume_ramp_secs,
         cpu_enabled = config.cpu.enabled,
         cpu_max = config.cpu.max_percent,
         cpu_burst_min = config.cpu.window.burst_secs_min,
@@ -585,6 +623,14 @@ fn validate_config(config: &Config) -> AppResult<()> {
             "pause_mem_available_percent cannot exceed caution_mem_available_percent",
         ));
     }
+    if config.global.pressure_window_ms == 0 {
+        return Err(boxed_error("pressure_window_ms must be positive"));
+    }
+    if config.global.pressure_enter_ms > config.global.pressure_window_ms {
+        return Err(boxed_error(
+            "pressure_enter_ms cannot exceed pressure_window_ms",
+        ));
+    }
     if config.network.enabled && config.network.targets.is_empty() {
         return Err(boxed_error(
             "network.targets cannot be empty when network is enabled",
@@ -619,5 +665,33 @@ mod tests {
         assert_eq!(config.global.active_tty_idle_secs, 300);
         assert_eq!(config.cpu.max_percent, 11);
         assert_eq!(config.network.targets.len(), 1);
+    }
+
+    #[test]
+    fn parses_pressure_and_resume_overrides() {
+        let config = parse_config(
+            r#"
+            pressure_enter_ms = 25
+            pressure_window_ms = 500
+            resume_quiet_secs = 7
+            resume_ramp_secs = 9
+            "#,
+        )
+        .expect("config parses");
+
+        assert_eq!(config.global.pressure_enter_ms, 25);
+        assert_eq!(config.global.pressure_window_ms, 500);
+        assert_eq!(config.global.resume_quiet_secs, 7);
+        assert_eq!(config.global.resume_ramp_secs, 9);
+    }
+
+    #[test]
+    fn rejects_pressure_enter_above_window() {
+        assert!(parse_config("pressure_enter_ms = 500\npressure_window_ms = 100\n").is_err());
+    }
+
+    #[test]
+    fn rejects_zero_pressure_window() {
+        assert!(parse_config("pressure_window_ms = 0\n").is_err());
     }
 }

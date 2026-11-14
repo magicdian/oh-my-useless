@@ -1,3 +1,4 @@
+use std::os::unix::io::RawFd;
 use std::time::Instant;
 
 use crate::domain::signal::Signal;
@@ -36,9 +37,10 @@ pub trait JournalSink {
     fn record(&mut self, transition: Transition);
 }
 
-/// A push-based observation source. Child 2 implements fd registration and
-/// dispatch; the trait is declared here so the domain contract is stable.
+/// A push-based observation source. The reactor registers its fds and
+/// dispatches readiness by token.
 #[allow(dead_code)]
 pub trait EventSource {
-    fn handle(&mut self) -> AppResult<Vec<Signal>>;
+    fn register(&mut self, epoll_fd: RawFd) -> AppResult<Vec<u64>>;
+    fn handle(&mut self, token: u64, events: u32) -> AppResult<Vec<Signal>>;
 }

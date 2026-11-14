@@ -5,5 +5,5 @@ pub mod signal;
 pub mod state;
 
 pub use reducer::reduce;
-pub use signal::Signal;
-pub use state::{Mode, PolicyOutput, PolicyState, ReasonCode};
+pub use signal::{PressureClass, Signal};
+pub use state::{Mode, PolicyOutput, PolicyState, ReasonCode, sampler_cadence};

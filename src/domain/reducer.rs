@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use crate::config::Config;
 use crate::domain::budget::{BudgetInput, compute};
-use crate::domain::signal::Signal;
+use crate::domain::signal::{PressureClass, Signal};
 use crate::domain::state::{Mode, ModuleDirective, PolicyOutput, PolicyState, ReasonCode};
 
 /// Pure policy transition. No filesystem, clock, or logging access.
@@ -23,6 +23,14 @@ pub fn reduce(
                 state.last_interactive = Some(now);
             }
         }
+        Signal::Pressure { class, .. } => {
+            state.last_pressure = Some(now);
+            state.pressure_reason = Some(match class {
+                PressureClass::Cpu => ReasonCode::LoadPressure,
+                PressureClass::Memory => ReasonCode::MemoryPressure,
+                PressureClass::Io => ReasonCode::IoPressure,
+            });
+        }
         Signal::SourceDegraded { .. } => {
             state.degraded = true;
         }
@@ -35,6 +43,19 @@ pub fn reduce(
         })
         .unwrap_or(false);
 
+    let pressure_signal = matches!(signal, Signal::Pressure { .. });
+    let pressure_active = pressure_signal
+        || state
+            .last_pressure
+            .map(|last| {
+                now.duration_since(last) < Duration::from_secs(config.global.resume_quiet_secs)
+            })
+            .unwrap_or(false);
+    if !pressure_active {
+        state.last_pressure = None;
+        state.pressure_reason = None;
+    }
+
     let sample = state.last_sample.clone().unwrap_or_default();
     let mut reasons = Vec::new();
 
@@ -43,6 +64,9 @@ pub fn reduce(
         Mode::Suspended
     } else if interactive_active {
         reasons.push(ReasonCode::InteractiveSession);
+        Mode::Suspended
+    } else if pressure_active {
+        reasons.push(state.pressure_reason.unwrap_or(ReasonCode::LoadPressure));
         Mode::Suspended
     } else {
         let load_pause = sample.load_percent >= config.global.pause_load_percent;
@@ -73,11 +97,41 @@ pub fn reduce(
         }
     };
 
-    let duty_percent = match mode {
+    let was_suspended = state.mode == Mode::Suspended;
+    let mut duty_percent = match mode {
         Mode::Running => 100,
         Mode::Cooling => config.global.caution_duty_percent,
         Mode::Suspended => 0,
     };
+
+    if mode == Mode::Suspended {
+        state.resumed_at = None;
+    } else {
+        if was_suspended {
+            state.resumed_at = Some(now);
+        }
+        if let Some(resumed_at) = state.resumed_at {
+            let ramp = Duration::from_secs(config.global.resume_ramp_secs);
+            if ramp.is_zero() {
+                state.resumed_at = None;
+            } else {
+                let elapsed = now.duration_since(resumed_at);
+                if elapsed >= ramp {
+                    state.resumed_at = None;
+                } else {
+                    let fraction = elapsed.as_secs_f64() / ramp.as_secs_f64();
+                    let factor = if fraction < 1.0 / 3.0 {
+                        25
+                    } else if fraction < 2.0 / 3.0 {
+                        50
+                    } else {
+                        100
+                    };
+                    duty_percent = ((duty_percent as u32 * factor) / 100) as u8;
+                }
+            }
+        }
+    }
 
     // Advance every schedule on every evaluation, including while suspended.
     // Freezing the phase caused an immediate full-size burst on resume.
@@ -150,8 +204,10 @@ mod tests {
 
     use crate::config::{BurstWindow, Config};
     use crate::domain::schedule::BurstPhase;
-    use crate::domain::signal::{SampleSnapshot, Session, SessionSet, Signal};
-    use crate::domain::state::{Mode, PolicyState};
+    use crate::domain::signal::{
+        PressureClass, PressureReading, PressureScope, SampleSnapshot, Session, SessionSet, Signal,
+    };
+    use crate::domain::state::{Mode, PolicyState, ReasonCode};
 
     use super::reduce;
 
@@ -223,7 +279,8 @@ mod tests {
 
     #[test]
     fn resumes_after_interactive_grace() {
-        let config = Config::default();
+        let mut config = Config::default();
+        config.global.resume_ramp_secs = 0;
         let mut state = PolicyState::new(1);
         let start = Instant::now();
 
@@ -320,7 +377,8 @@ mod tests {
 
     #[test]
     fn parity_grace_expiry_matches_legacy() {
-        let config = Config::default();
+        let mut config = Config::default();
+        config.global.resume_ramp_secs = 0;
         let mut state = PolicyState::new(3);
         let start = Instant::now();
 
@@ -413,6 +471,108 @@ mod tests {
             start,
         );
         assert_eq!(output.primary_reason(), None);
+    }
+
+    #[test]
+    fn pressure_suspends_for_quiet_window_and_ramps_back() {
+        let mut config = Config::default();
+        config.global.resume_quiet_secs = 10;
+        config.global.resume_ramp_secs = 90;
+        let mut state = PolicyState::new(1);
+        let start = Instant::now();
+
+        let pressure = Signal::Pressure {
+            class: PressureClass::Memory,
+            scope: PressureScope::Host,
+            reading: PressureReading {
+                some_avg10_x100: 210,
+                ..PressureReading::default()
+            },
+        };
+        let output = reduce(&mut state, &pressure, &config, start);
+        assert_eq!(output.mode, Mode::Suspended);
+        assert!(output.reasons.contains(&ReasonCode::MemoryPressure));
+
+        let output = reduce(
+            &mut state,
+            &Signal::Sample(host_sample(0, 80)),
+            &config,
+            start + Duration::from_secs(9),
+        );
+        assert_eq!(output.mode, Mode::Suspended);
+
+        let resume_at = start + Duration::from_secs(11);
+        let output = reduce(
+            &mut state,
+            &Signal::Sample(host_sample(0, 80)),
+            &config,
+            resume_at,
+        );
+        assert_eq!(output.mode, Mode::Running);
+        assert_eq!(output.cpu.duty_percent, 25);
+
+        let output = reduce(
+            &mut state,
+            &Signal::Sample(host_sample(0, 80)),
+            &config,
+            resume_at + Duration::from_secs(31),
+        );
+        assert_eq!(output.cpu.duty_percent, 50);
+
+        let output = reduce(
+            &mut state,
+            &Signal::Sample(host_sample(0, 80)),
+            &config,
+            resume_at + Duration::from_secs(61),
+        );
+        assert_eq!(output.cpu.duty_percent, 100);
+
+        let output = reduce(
+            &mut state,
+            &Signal::Sample(host_sample(0, 80)),
+            &config,
+            resume_at + Duration::from_secs(91),
+        );
+        assert_eq!(output.cpu.duty_percent, 100);
+        assert!(state.resumed_at.is_none());
+    }
+
+    #[test]
+    fn pressure_classes_map_to_reasons() {
+        let config = Config::default();
+        let start = Instant::now();
+        for (class, reason) in [
+            (PressureClass::Cpu, ReasonCode::LoadPressure),
+            (PressureClass::Io, ReasonCode::IoPressure),
+            (PressureClass::Memory, ReasonCode::MemoryPressure),
+        ] {
+            let mut state = PolicyState::new(1);
+            let signal = Signal::Pressure {
+                class,
+                scope: PressureScope::Host,
+                reading: PressureReading::default(),
+            };
+            let output = reduce(&mut state, &signal, &config, start);
+            assert_eq!(output.mode, Mode::Suspended);
+            assert_eq!(output.reasons, vec![reason]);
+        }
+    }
+
+    #[test]
+    fn zero_quiet_window_still_suspends_on_a_fresh_pressure_signal() {
+        let mut config = Config::default();
+        config.global.resume_quiet_secs = 0;
+        let mut state = PolicyState::new(1);
+
+        let signal = Signal::Pressure {
+            class: PressureClass::Memory,
+            scope: PressureScope::Host,
+            reading: PressureReading::default(),
+        };
+        let output = reduce(&mut state, &signal, &config, Instant::now());
+
+        assert_eq!(output.mode, Mode::Suspended);
+        assert!(output.reasons.contains(&ReasonCode::MemoryPressure));
     }
 
     #[test]
