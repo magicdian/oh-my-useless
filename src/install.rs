@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::config::{
-    DEFAULT_CONFIG_DIR, INITD_SCRIPT_PATH, INSTALL_BIN_PATH, PID_FILE_PATH, STATE_FILE_PATH,
-    SYSTEMD_UNIT_PATH, ensure_default_config, load_config,
+    Config, DEFAULT_CONFIG_DIR, INITD_SCRIPT_PATH, INSTALL_BIN_PATH, PID_FILE_PATH,
+    STATE_FILE_PATH, SYSTEMD_UNIT_PATH, ensure_default_config, load_config,
 };
 use crate::daemon;
 use crate::error::{AppResult, boxed_error};
@@ -22,6 +22,7 @@ pub fn install(config_path: &Path) -> AppResult<()> {
     ensure_root()?;
     ensure_default_config(config_path)?;
 
+    let config = load_config(config_path)?;
     let current_exe = env::current_exe()?;
     let install_path = Path::new(INSTALL_BIN_PATH);
     if current_exe != install_path {
@@ -35,7 +36,7 @@ pub fn install(config_path: &Path) -> AppResult<()> {
     }
 
     match detect_service_manager() {
-        ServiceManager::Systemd => install_systemd(config_path)?,
+        ServiceManager::Systemd => install_systemd(config_path, &config)?,
         ServiceManager::Initd => install_initd(config_path)?,
         ServiceManager::None => {
             return Err(boxed_error(
@@ -168,8 +169,17 @@ fn detect_service_manager() -> ServiceManager {
     }
 }
 
-fn install_systemd(config_path: &Path) -> AppResult<()> {
-    let unit = format!(
+fn install_systemd(config_path: &Path, config: &Config) -> AppResult<()> {
+    let unit = systemd_unit(config_path, config, total_memory_mb().unwrap_or(2048));
+    fs::write(SYSTEMD_UNIT_PATH, unit)?;
+    run_command("systemctl", ["daemon-reload"])?;
+    run_command("systemctl", ["enable", "--now", SERVICE_NAME])?;
+    Ok(())
+}
+
+fn systemd_unit(config_path: &Path, config: &Config, total_mb: u64) -> String {
+    let ceiling = memory_ceiling_mb(config, total_mb);
+    format!(
         "[Unit]\n\
          Description=useless synthetic resource daemon\n\
          After=network-online.target\n\
@@ -179,20 +189,45 @@ fn install_systemd(config_path: &Path) -> AppResult<()> {
          Type=simple\n\
          User=root\n\
          Nice=19\n\
+         OOMScoreAdjust=1000\n\
+         IOSchedulingClass=idle\n\
+         CPUWeight=10\n\
+         MemoryHigh={}M\n\
+         MemoryMax={}M\n\
          ExecStart={} daemon --config {}\n\
          ExecReload=/bin/kill -HUP $MAINPID\n\
-         Restart=always\n\
+         Restart=on-failure\n\
          RestartSec=10\n\
+         StartLimitIntervalSec=300\n\
+         StartLimitBurst=5\n\
          \n\
          [Install]\n\
          WantedBy=multi-user.target\n",
+        ceiling + 64,
+        ceiling + 128,
         INSTALL_BIN_PATH,
         config_path.display()
-    );
-    fs::write(SYSTEMD_UNIT_PATH, unit)?;
-    run_command("systemctl", ["daemon-reload"])?;
-    run_command("systemctl", ["enable", "--now", SERVICE_NAME])?;
-    Ok(())
+    )
+}
+
+fn memory_ceiling_mb(config: &Config, total_mb: u64) -> u64 {
+    if !config.memory.enabled {
+        return 64;
+    }
+    let ratio = total_mb.saturating_mul(config.memory.max_percent as u64) / 100;
+    let absolute = if config.memory.max_absolute_mb == 0 {
+        u64::MAX
+    } else {
+        config.memory.max_absolute_mb
+    };
+    ratio.min(absolute).max(64)
+}
+
+fn total_memory_mb() -> Option<u64> {
+    let content = fs::read_to_string("/proc/meminfo").ok()?;
+    let line = content.lines().find(|line| line.starts_with("MemTotal:"))?;
+    let kib = line.split_whitespace().nth(1)?.parse::<u64>().ok()?;
+    Some(kib / 1024)
 }
 
 fn uninstall_systemd() -> AppResult<()> {
@@ -336,4 +371,34 @@ fn write_file(path: impl Into<PathBuf>, content: impl AsRef<[u8]>) -> AppResult<
     let mut file = fs::File::create(path)?;
     file.write_all(content.as_ref())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use crate::config::{Config, Preset};
+
+    use super::{memory_ceiling_mb, systemd_unit};
+
+    #[test]
+    fn derives_self_containment_limits() {
+        let config = Config::for_preset(Preset::Balanced);
+        assert_eq!(memory_ceiling_mb(&config, 2048), 307);
+
+        let unit = systemd_unit(Path::new("/etc/useless/config.toml"), &config, 2048);
+        assert!(unit.contains("OOMScoreAdjust=1000"));
+        assert!(unit.contains("MemoryHigh=371M"));
+        assert!(unit.contains("MemoryMax=435M"));
+        assert!(unit.contains("IOSchedulingClass=idle"));
+        assert!(unit.contains("Restart=on-failure"));
+        assert!(unit.contains("Nice=19"));
+    }
+
+    #[test]
+    fn absolute_memory_cap_wins() {
+        let mut config = Config::for_preset(Preset::Balanced);
+        config.memory.max_absolute_mb = 128;
+        assert_eq!(memory_ceiling_mb(&config, 2048), 128);
+    }
 }

@@ -63,6 +63,8 @@ pub struct GlobalConfig {
     pub pressure_window_ms: u64,
     pub resume_quiet_secs: u64,
     pub resume_ramp_secs: u64,
+    pub reserve_mb: u64,
+    pub reserve_percent: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -76,7 +78,14 @@ pub struct CpuConfig {
 pub struct MemoryConfig {
     pub enabled: bool,
     pub max_percent: u8,
+    pub max_absolute_mb: u64,
+    pub chunk_mb: u64,
     pub window: BurstWindow,
+}
+
+#[derive(Debug, Clone)]
+pub struct SensorConfig {
+    pub watch_slices: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -95,6 +104,7 @@ pub struct Config {
     pub cpu: CpuConfig,
     pub memory: MemoryConfig,
     pub network: NetworkConfig,
+    pub sensor: SensorConfig,
 }
 
 impl Default for Config {
@@ -121,6 +131,8 @@ impl Config {
                     pressure_window_ms: 1000,
                     resume_quiet_secs: 120,
                     resume_ramp_secs: 120,
+                    reserve_mb: 512,
+                    reserve_percent: 10,
                 },
                 cpu: CpuConfig {
                     enabled: true,
@@ -135,6 +147,8 @@ impl Config {
                 memory: MemoryConfig {
                     enabled: true,
                     max_percent: 8,
+                    max_absolute_mb: 0,
+                    chunk_mb: 16,
                     window: BurstWindow {
                         burst_secs_min: 30,
                         burst_secs_max: 90,
@@ -154,6 +168,9 @@ impl Config {
                     },
                     targets: default_targets(),
                 },
+                sensor: SensorConfig {
+                    watch_slices: default_slices(),
+                },
             },
             Preset::Balanced => Self {
                 preset,
@@ -170,6 +187,8 @@ impl Config {
                     pressure_window_ms: 1000,
                     resume_quiet_secs: 90,
                     resume_ramp_secs: 90,
+                    reserve_mb: 512,
+                    reserve_percent: 10,
                 },
                 cpu: CpuConfig {
                     enabled: true,
@@ -184,6 +203,8 @@ impl Config {
                 memory: MemoryConfig {
                     enabled: true,
                     max_percent: 15,
+                    max_absolute_mb: 0,
+                    chunk_mb: 16,
                     window: BurstWindow {
                         burst_secs_min: 40,
                         burst_secs_max: 120,
@@ -203,6 +224,9 @@ impl Config {
                     },
                     targets: default_targets(),
                 },
+                sensor: SensorConfig {
+                    watch_slices: default_slices(),
+                },
             },
             Preset::Aggressive => Self {
                 preset,
@@ -219,6 +243,8 @@ impl Config {
                     pressure_window_ms: 1000,
                     resume_quiet_secs: 60,
                     resume_ramp_secs: 90,
+                    reserve_mb: 512,
+                    reserve_percent: 10,
                 },
                 cpu: CpuConfig {
                     enabled: true,
@@ -233,6 +259,8 @@ impl Config {
                 memory: MemoryConfig {
                     enabled: true,
                     max_percent: 22,
+                    max_absolute_mb: 0,
+                    chunk_mb: 16,
                     window: BurstWindow {
                         burst_secs_min: 60,
                         burst_secs_max: 180,
@@ -251,6 +279,9 @@ impl Config {
                         rest_secs_max: 240,
                     },
                     targets: default_targets(),
+                },
+                sensor: SensorConfig {
+                    watch_slices: default_slices(),
                 },
             },
         }
@@ -348,6 +379,10 @@ pub fn parse_config(content: &str) -> AppResult<Config> {
             (None, "resume_ramp_secs") => {
                 config.global.resume_ramp_secs = parse_u64(&entry.value, line)?
             }
+            (None, "reserve_mb") => config.global.reserve_mb = parse_u64(&entry.value, line)?,
+            (None, "reserve_percent") => {
+                config.global.reserve_percent = parse_u8(&entry.value, line)?
+            }
             (Some("cpu"), "enabled") => config.cpu.enabled = parse_bool(&entry.value, line)?,
             (Some("cpu"), "max_percent") => config.cpu.max_percent = parse_u8(&entry.value, line)?,
             (Some("cpu"), "burst_secs_min") => {
@@ -366,6 +401,10 @@ pub fn parse_config(content: &str) -> AppResult<Config> {
             (Some("memory"), "max_percent") => {
                 config.memory.max_percent = parse_u8(&entry.value, line)?
             }
+            (Some("memory"), "max_absolute_mb") => {
+                config.memory.max_absolute_mb = parse_u64(&entry.value, line)?
+            }
+            (Some("memory"), "chunk_mb") => config.memory.chunk_mb = parse_u64(&entry.value, line)?,
             (Some("memory"), "burst_secs_min") => {
                 config.memory.window.burst_secs_min = parse_u64(&entry.value, line)?
             }
@@ -402,6 +441,9 @@ pub fn parse_config(content: &str) -> AppResult<Config> {
             (Some("network"), "targets") => {
                 config.network.targets = parse_string_list(&entry.value, line)?
             }
+            (Some("sensor"), "watch_slices") => {
+                config.sensor.watch_slices = parse_string_list(&entry.value, line)?
+            }
             _ => {
                 return Err(boxed_error(format!(
                     "unknown config key on line {line}: section={:?} key={}",
@@ -433,6 +475,8 @@ pub fn default_config_text() -> String {
          pressure_window_ms = {pressure_window}\n\
          resume_quiet_secs = {resume_quiet}\n\
          resume_ramp_secs = {resume_ramp}\n\
+         reserve_mb = {reserve_mb}\n\
+         reserve_percent = {reserve_percent}\n\
          \n\
          [cpu]\n\
          enabled = {cpu_enabled}\n\
@@ -445,6 +489,8 @@ pub fn default_config_text() -> String {
          [memory]\n\
          enabled = {memory_enabled}\n\
          max_percent = {memory_max}\n\
+         max_absolute_mb = {memory_absolute}\n\
+         chunk_mb = {memory_chunk}\n\
          burst_secs_min = {memory_burst_min}\n\
          burst_secs_max = {memory_burst_max}\n\
          rest_secs_min = {memory_rest_min}\n\
@@ -458,7 +504,10 @@ pub fn default_config_text() -> String {
          burst_secs_max = {network_burst_max}\n\
          rest_secs_min = {network_rest_min}\n\
          rest_secs_max = {network_rest_max}\n\
-         targets = [{targets}]\n",
+         targets = [{targets}]\n\
+         \n\
+         [sensor]\n\
+         watch_slices = [{watch_slices}]\n",
         preset = config.preset,
         check_interval = config.global.check_interval_secs,
         interactive_grace = config.global.interactive_grace_secs,
@@ -472,6 +521,8 @@ pub fn default_config_text() -> String {
         pressure_window = config.global.pressure_window_ms,
         resume_quiet = config.global.resume_quiet_secs,
         resume_ramp = config.global.resume_ramp_secs,
+        reserve_mb = config.global.reserve_mb,
+        reserve_percent = config.global.reserve_percent,
         cpu_enabled = config.cpu.enabled,
         cpu_max = config.cpu.max_percent,
         cpu_burst_min = config.cpu.window.burst_secs_min,
@@ -480,6 +531,8 @@ pub fn default_config_text() -> String {
         cpu_rest_max = config.cpu.window.rest_secs_max,
         memory_enabled = config.memory.enabled,
         memory_max = config.memory.max_percent,
+        memory_absolute = config.memory.max_absolute_mb,
+        memory_chunk = config.memory.chunk_mb,
         memory_burst_min = config.memory.window.burst_secs_min,
         memory_burst_max = config.memory.window.burst_secs_max,
         memory_rest_min = config.memory.window.rest_secs_min,
@@ -496,6 +549,13 @@ pub fn default_config_text() -> String {
             .targets
             .iter()
             .map(|target| format!("\"{target}\""))
+            .collect::<Vec<_>>()
+            .join(", "),
+        watch_slices = config
+            .sensor
+            .watch_slices
+            .iter()
+            .map(|slice| format!("\"{slice}\""))
             .collect::<Vec<_>>()
             .join(", "),
     )
@@ -525,6 +585,10 @@ fn default_targets() -> Vec<String> {
         "http://mirror.de.leaseweb.net/speedtest/10000mb.bin".to_string(),
         "http://proof.ovh.net/files/10Gio.dat".to_string(),
     ]
+}
+
+fn default_slices() -> Vec<String> {
+    vec!["kubepods.slice".to_string(), "user.slice".to_string()]
 }
 
 fn parse_string(value: &str) -> String {
@@ -631,6 +695,12 @@ fn validate_config(config: &Config) -> AppResult<()> {
             "pressure_enter_ms cannot exceed pressure_window_ms",
         ));
     }
+    if config.global.reserve_percent >= 100 {
+        return Err(boxed_error("reserve_percent must be below 100"));
+    }
+    if config.memory.chunk_mb == 0 {
+        return Err(boxed_error("memory.chunk_mb must be positive"));
+    }
     if config.network.enabled && config.network.targets.is_empty() {
         return Err(boxed_error(
             "network.targets cannot be empty when network is enabled",
@@ -693,5 +763,59 @@ mod tests {
     #[test]
     fn rejects_zero_pressure_window() {
         assert!(parse_config("pressure_window_ms = 0\n").is_err());
+    }
+
+    #[test]
+    fn old_config_without_budget_keys_uses_defaults() {
+        let config = parse_config("preset = \"balanced\"\n").expect("config parses");
+
+        assert_eq!(config.global.reserve_mb, 512);
+        assert_eq!(config.global.reserve_percent, 10);
+        assert_eq!(config.memory.max_absolute_mb, 0);
+        assert_eq!(config.memory.chunk_mb, 16);
+        assert_eq!(
+            config.sensor.watch_slices,
+            vec!["kubepods.slice".to_string(), "user.slice".to_string()]
+        );
+    }
+
+    #[test]
+    fn parses_budget_and_sensor_keys() {
+        let config = parse_config(
+            r#"
+            reserve_mb = 256
+            reserve_percent = 5
+
+            [memory]
+            max_absolute_mb = 128
+            chunk_mb = 32
+
+            [sensor]
+            watch_slices = ["kubepods.slice"]
+            "#,
+        )
+        .expect("config parses");
+
+        assert_eq!(config.global.reserve_mb, 256);
+        assert_eq!(config.global.reserve_percent, 5);
+        assert_eq!(config.memory.max_absolute_mb, 128);
+        assert_eq!(config.memory.chunk_mb, 32);
+        assert_eq!(config.sensor.watch_slices, vec!["kubepods.slice"]);
+    }
+
+    #[test]
+    fn rejects_invalid_budget_values() {
+        assert!(parse_config("reserve_percent = 100\n").is_err());
+        assert!(parse_config("[memory]\nchunk_mb = 0\n").is_err());
+    }
+
+    #[test]
+    fn default_config_round_trips() {
+        let config =
+            super::parse_config(&super::default_config_text()).expect("default config parses");
+
+        assert_eq!(config.global.reserve_mb, 512);
+        assert_eq!(config.memory.chunk_mb, 16);
+        assert_eq!(config.sensor.watch_slices.len(), 2);
     }
 }

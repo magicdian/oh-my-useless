@@ -119,8 +119,10 @@ impl JournalSink for Journal {
 pub struct StateSnapshot {
     pub mode: &'static str,
     pub reasons: String,
+    pub scope: String,
     pub summary: String,
     pub budget_mb: u64,
+    pub reserve_mb: u64,
     pub available_mb: u64,
     pub capabilities: String,
     pub last_transition: String,
@@ -128,10 +130,12 @@ pub struct StateSnapshot {
 
 pub fn write_state(path: &Path, snapshot: &StateSnapshot) -> io::Result<()> {
     let content = format!(
-        "mode={}\nreasons={}\nbudget_mb={}\navailable_mb={}\ncapabilities={}\nlast_transition={}\nsummary={}\n",
+        "mode={}\nreasons={}\nscope={}\nbudget_mb={}\nreserve_mb={}\navailable_mb={}\ncapabilities={}\nlast_transition={}\nsummary={}\n",
         snapshot.mode,
         snapshot.reasons,
+        snapshot.scope,
         snapshot.budget_mb,
+        snapshot.reserve_mb,
         snapshot.available_mb,
         snapshot.capabilities,
         snapshot.last_transition,
@@ -276,8 +280,10 @@ mod tests {
             &StateSnapshot {
                 mode: "running",
                 reasons: "load_pressure".to_string(),
+                scope: String::new(),
                 summary: "pressure=Idle load=10".to_string(),
                 budget_mb: 12,
+                reserve_mb: 4,
                 available_mb: 600,
                 capabilities: "psi=ok".to_string(),
                 last_transition: "0".to_string(),

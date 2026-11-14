@@ -5,6 +5,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::adapters::cgroups::{self, ScopeSet};
+use crate::adapters::psi::{cgroup_specs, host_specs};
 use crate::adapters::{ProcfsSampler, PsiCapability, PsiSource, RealPsiOps, SignalSource};
 use crate::config::{Config, JOURNAL_FILE_PATH, PID_FILE_PATH, STATE_FILE_PATH, load_config};
 use crate::domain::{
@@ -53,14 +55,15 @@ pub fn run(config_path: &Path) -> AppResult<()> {
 
     let capability = Arc::new(Mutex::new(PsiCapability::default()));
     let mut current_config = config;
-    let mut reactor = build_reactor(&current_config, &capability)?;
-    let mut capabilities = Capabilities::detect(&capability);
+    let (mut reactor, mut scopes) = build_reactor(&current_config, &capability)?;
+    let mut capabilities = Capabilities::detect(&capability, &scopes);
 
     let mut journal = Journal::with_file(512, Path::new(JOURNAL_FILE_PATH).to_path_buf());
     let mut last_summary = String::new();
     let mut last_mode = Mode::Suspended;
     let mut last_transition = "startup".to_string();
     let mut last_state_write: Option<Instant> = None;
+    let mut last_scope_refresh = Instant::now();
     let mut next_sample = Instant::now();
 
     eprintln!(
@@ -76,9 +79,12 @@ pub fn run(config_path: &Path) -> AppResult<()> {
                 Ok(updated) => {
                     current_config = Arc::new(updated);
                     store.replace_config(Arc::clone(&current_config));
-                    reactor = build_reactor(&current_config, &capability)?;
-                    capabilities = Capabilities::detect(&capability);
+                    let (next_reactor, next_scopes) = build_reactor(&current_config, &capability)?;
+                    reactor = next_reactor;
+                    scopes = next_scopes;
+                    capabilities = Capabilities::detect(&capability, &scopes);
                     last_summary.clear();
+                    last_scope_refresh = Instant::now();
                     next_sample = clock.now();
                     eprintln!("[useless] reloaded config from {}", config_path.display());
                     eprintln!("[useless] sensors: {}", capabilities.label());
@@ -91,6 +97,23 @@ pub fn run(config_path: &Path) -> AppResult<()> {
                     );
                 }
             }
+        }
+
+        if last_scope_refresh.elapsed() >= Duration::from_secs(60) {
+            let cgroup_root = Path::new("/sys/fs/cgroup");
+            let own = cgroups::own_cgroup(cgroup_root);
+            let next = cgroups::discover(&current_config.sensor.watch_slices, cgroup_root, &own);
+            if next.watched != scopes.watched || next.missing != scopes.missing {
+                let (next_reactor, next_scopes) = build_reactor(&current_config, &capability)?;
+                reactor = next_reactor;
+                scopes = next_scopes;
+                capabilities = Capabilities::detect(&capability, &scopes);
+                eprintln!(
+                    "[useless] cgroup scopes refreshed: {}",
+                    capabilities.label()
+                );
+            }
+            last_scope_refresh = Instant::now();
         }
 
         let wait_until = next_sample;
@@ -156,7 +179,13 @@ pub fn run(config_path: &Path) -> AppResult<()> {
             .map(|at| at.elapsed() >= Duration::from_secs(30))
             .unwrap_or(true);
         if mode_changed || due_state {
-            let snapshot = state_snapshot(&output, &capabilities, &last_transition, available);
+            let snapshot = state_snapshot(
+                &output,
+                &capabilities,
+                &last_transition,
+                available,
+                policy.last_pressure_scope.as_deref(),
+            );
             let _ = write_state(Path::new(STATE_FILE_PATH), &snapshot);
             last_state_write = Some(Instant::now());
         }
@@ -182,7 +211,10 @@ pub fn run(config_path: &Path) -> AppResult<()> {
     Ok(())
 }
 
-fn build_reactor(config: &Config, capability: &Arc<Mutex<PsiCapability>>) -> AppResult<Reactor> {
+fn build_reactor(
+    config: &Config,
+    capability: &Arc<Mutex<PsiCapability>>,
+) -> AppResult<(Reactor, ScopeSet)> {
     let mut reactor = Reactor::new()?;
     reactor.add(Box::new(SignalSource::new(
         2,
@@ -190,36 +222,65 @@ fn build_reactor(config: &Config, capability: &Arc<Mutex<PsiCapability>>) -> App
         &RELOAD_FLAG,
     )?))?;
 
+    let cgroup_root = Path::new("/sys/fs/cgroup");
+    let own = cgroups::own_cgroup(cgroup_root);
+    let scopes = cgroups::discover(&config.sensor.watch_slices, cgroup_root, &own);
+    if !scopes.missing.is_empty() {
+        eprintln!(
+            "[useless] cgroup scopes missing: {}",
+            scopes.missing.join(",")
+        );
+    }
+
+    let mut specs = host_specs();
+    for path in &scopes.watched {
+        let name = cgroups::slice_name(path);
+        specs.extend(cgroup_specs(&name, path));
+    }
+
     let psi = PsiSource::new(
         Arc::new(RealPsiOps),
         config.global.pressure_enter_ms,
         config.global.pressure_window_ms,
         Arc::clone(capability),
+        specs,
     );
     reactor.add(Box::new(psi))?;
 
-    Ok(reactor)
+    Ok((reactor, scopes))
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Capabilities {
     psi: PsiCapability,
+    cgroup_scopes: usize,
+    missing_slices: Vec<String>,
     cgroup_v2: bool,
     inotify: bool,
 }
 
 impl Capabilities {
-    fn detect(capability: &Arc<Mutex<PsiCapability>>) -> Self {
+    fn detect(capability: &Arc<Mutex<PsiCapability>>, scopes: &ScopeSet) -> Self {
         Self {
-            psi: *capability.lock().expect("psi capability"),
+            psi: capability.lock().expect("psi capability").clone(),
+            cgroup_scopes: scopes.watched.len(),
+            missing_slices: scopes.missing.clone(),
             cgroup_v2: Path::new("/sys/fs/cgroup/cgroup.controllers").exists(),
             inotify: sys::inotify_probe(),
         }
     }
 
     fn label(&self) -> String {
+        let cgroups = if self.missing_slices.is_empty() {
+            format!("cgroups={}", self.cgroup_scopes)
+        } else {
+            format!(
+                "cgroups=degraded(missing: {})",
+                self.missing_slices.join(",")
+            )
+        };
         format!(
-            "{} cgroup_v2={} inotify={}",
+            "{} {cgroups} cgroup_v2={} inotify={}",
             self.psi.label(),
             status(self.cgroup_v2),
             status(self.inotify)
@@ -236,6 +297,7 @@ fn state_snapshot(
     capabilities: &Capabilities,
     last_transition: &str,
     available: u64,
+    scope: Option<&str>,
 ) -> StateSnapshot {
     StateSnapshot {
         mode: output.mode.key(),
@@ -245,8 +307,10 @@ fn state_snapshot(
             .map(|reason| reason.label())
             .collect::<Vec<_>>()
             .join(","),
+        scope: scope.unwrap_or("").to_string(),
         summary: output.summary.clone(),
         budget_mb: output.budget.target_bytes / (1024 * 1024),
+        reserve_mb: output.budget.reserve_bytes / (1024 * 1024),
         available_mb: available / (1024 * 1024),
         capabilities: capabilities.label(),
         last_transition: last_transition.to_string(),

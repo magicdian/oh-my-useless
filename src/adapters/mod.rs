@@ -1,3 +1,4 @@
+pub mod cgroups;
 pub mod procfs;
 pub mod psi;
 pub mod signals;

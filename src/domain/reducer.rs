@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use crate::config::Config;
 use crate::domain::budget::{BudgetInput, compute};
-use crate::domain::signal::{PressureClass, Signal};
+use crate::domain::signal::{PressureClass, PressureScope, Signal};
 use crate::domain::state::{Mode, ModuleDirective, PolicyOutput, PolicyState, ReasonCode};
 
 /// Pure policy transition. No filesystem, clock, or logging access.
@@ -23,13 +23,17 @@ pub fn reduce(
                 state.last_interactive = Some(now);
             }
         }
-        Signal::Pressure { class, .. } => {
+        Signal::Pressure { class, scope, .. } => {
             state.last_pressure = Some(now);
             state.pressure_reason = Some(match class {
                 PressureClass::Cpu => ReasonCode::LoadPressure,
                 PressureClass::Memory => ReasonCode::MemoryPressure,
                 PressureClass::Io => ReasonCode::IoPressure,
             });
+            state.last_pressure_scope = match scope {
+                PressureScope::Host => None,
+                PressureScope::Cgroup(name) => Some(name.clone()),
+            };
         }
         Signal::SourceDegraded { .. } => {
             state.degraded = true;
@@ -54,6 +58,7 @@ pub fn reduce(
     if !pressure_active {
         state.last_pressure = None;
         state.pressure_reason = None;
+        state.last_pressure_scope = None;
     }
 
     let sample = state.last_sample.clone().unwrap_or_default();
@@ -141,16 +146,15 @@ pub fn reduce(
         .network_schedule
         .is_active(now, &config.network.window);
 
-    // Informational in this child: child 3's chunked ledger consumes this
-    // budget. The memory worker still sizes from the legacy ratio until then.
+    // Child 3 consumes this budget with the chunked ledger.
     let budget = compute(&BudgetInput {
         mem_total: sample.mem_total_bytes,
         mem_available: sample.mem_available_bytes,
         max_percent: config.memory.max_percent,
         duty_percent,
-        max_absolute_mb: 0,
-        reserve_mb: 0,
-        reserve_percent: 0,
+        max_absolute_mb: config.memory.max_absolute_mb,
+        reserve_mb: config.global.reserve_mb,
+        reserve_percent: config.global.reserve_percent,
     });
 
     let summary = match signal {
@@ -162,14 +166,21 @@ pub fn reduce(
             state.sessions.tty_count(),
             state.sessions.ssh_count()
         ),
-        _ => format!(
-            "pressure={} load={} mem_avail={} net_rx={}B/s net_tx={}B/s",
-            mode.label(),
-            sample.load_percent,
-            sample.mem_available_percent,
-            sample.net_rx_bytes_per_sec,
-            sample.net_tx_bytes_per_sec
-        ),
+        _ => {
+            let scope = state
+                .last_pressure_scope
+                .as_deref()
+                .map(|scope| format!(" scope={scope}"))
+                .unwrap_or_default();
+            format!(
+                "pressure={} load={} mem_avail={} net_rx={}B/s net_tx={}B/s{scope}",
+                mode.label(),
+                sample.load_percent,
+                sample.mem_available_percent,
+                sample.net_rx_bytes_per_sec,
+                sample.net_tx_bytes_per_sec
+            )
+        }
     };
 
     let output = PolicyOutput {
@@ -573,6 +584,55 @@ mod tests {
 
         assert_eq!(output.mode, Mode::Suspended);
         assert!(output.reasons.contains(&ReasonCode::MemoryPressure));
+    }
+
+    #[test]
+    fn budget_respects_reserve_and_headroom() {
+        let mut config = Config::default();
+        config.global.reserve_mb = 512;
+        config.global.reserve_percent = 10;
+        config.memory.max_absolute_mb = 0;
+
+        let mut state = PolicyState::new(1);
+        let mut sample = host_sample(0, 80);
+        sample.mem_total_bytes = 1024 * 1024 * 1024;
+        sample.mem_available_bytes = 600 * 1024 * 1024;
+
+        let output = reduce(&mut state, &Signal::Sample(sample), &config, Instant::now());
+
+        assert_eq!(output.budget.reserve_bytes, 512 * 1024 * 1024);
+        assert_eq!(output.budget.target_bytes, 88 * 1024 * 1024);
+
+        let mut capped = Config::default();
+        capped.memory.max_absolute_mb = 32;
+        let mut capped_state = PolicyState::new(2);
+        let mut capped_sample = host_sample(0, 80);
+        capped_sample.mem_total_bytes = 1024 * 1024 * 1024;
+        capped_sample.mem_available_bytes = 600 * 1024 * 1024;
+
+        let output = reduce(
+            &mut capped_state,
+            &Signal::Sample(capped_sample),
+            &capped,
+            Instant::now(),
+        );
+        assert_eq!(output.budget.target_bytes, 32 * 1024 * 1024);
+    }
+
+    #[test]
+    fn cgroup_pressure_scope_appears_in_summary() {
+        let config = Config::default();
+        let mut state = PolicyState::new(1);
+        let signal = Signal::Pressure {
+            class: PressureClass::Memory,
+            scope: PressureScope::Cgroup("kubepods.slice".to_string()),
+            reading: PressureReading::default(),
+        };
+
+        let output = reduce(&mut state, &signal, &config, Instant::now());
+
+        assert_eq!(output.mode, Mode::Suspended);
+        assert!(output.summary.contains("scope=kubepods.slice"));
     }
 
     #[test]

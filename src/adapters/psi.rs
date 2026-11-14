@@ -2,7 +2,7 @@ use std::io;
 use std::os::unix::io::RawFd;
 use std::path::Path;
 
-use crate::domain::signal::PressureReading;
+use crate::domain::signal::{PressureClass, PressureReading, PressureScope};
 use crate::sys;
 
 #[cfg(target_os = "linux")]
@@ -47,16 +47,102 @@ impl PsiOps for RealPsiOps {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct PsiSpec {
+    pub class: PressureClass,
+    pub scope: PressureScope,
+    pub kind: &'static str,
+    pub path: String,
+}
+
+pub fn host_specs() -> Vec<PsiSpec> {
+    vec![
+        PsiSpec {
+            class: PressureClass::Cpu,
+            scope: PressureScope::Host,
+            kind: "some",
+            path: "/proc/pressure/cpu".to_string(),
+        },
+        PsiSpec {
+            class: PressureClass::Memory,
+            scope: PressureScope::Host,
+            kind: "some",
+            path: "/proc/pressure/memory".to_string(),
+        },
+        PsiSpec {
+            class: PressureClass::Memory,
+            scope: PressureScope::Host,
+            kind: "full",
+            path: "/proc/pressure/memory".to_string(),
+        },
+        PsiSpec {
+            class: PressureClass::Io,
+            scope: PressureScope::Host,
+            kind: "some",
+            path: "/proc/pressure/io".to_string(),
+        },
+        PsiSpec {
+            class: PressureClass::Io,
+            scope: PressureScope::Host,
+            kind: "full",
+            path: "/proc/pressure/io".to_string(),
+        },
+    ]
+}
+
+pub fn cgroup_specs(slice: &str, dir: &Path) -> Vec<PsiSpec> {
+    let scope = PressureScope::Cgroup(slice.to_string());
+    vec![
+        PsiSpec {
+            class: PressureClass::Cpu,
+            scope: scope.clone(),
+            kind: "some",
+            path: dir.join("cpu.pressure").to_string_lossy().into_owned(),
+        },
+        PsiSpec {
+            class: PressureClass::Memory,
+            scope: scope.clone(),
+            kind: "some",
+            path: dir.join("memory.pressure").to_string_lossy().into_owned(),
+        },
+        PsiSpec {
+            class: PressureClass::Memory,
+            scope: scope.clone(),
+            kind: "full",
+            path: dir.join("memory.pressure").to_string_lossy().into_owned(),
+        },
+        PsiSpec {
+            class: PressureClass::Io,
+            scope: scope.clone(),
+            kind: "some",
+            path: dir.join("io.pressure").to_string_lossy().into_owned(),
+        },
+        PsiSpec {
+            class: PressureClass::Io,
+            scope,
+            kind: "full",
+            path: dir.join("io.pressure").to_string_lossy().into_owned(),
+        },
+    ]
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PsiCapability {
     pub psi: bool,
     pub trigger_write: bool,
+    pub missing: Vec<String>,
 }
 
 impl PsiCapability {
-    pub fn label(self) -> String {
+    pub fn label(&self) -> String {
+        let missing = if self.missing.is_empty() {
+            String::new()
+        } else {
+            format!(" missing={}", self.missing.join(","))
+        };
         format!(
-            "psi={} trigger_write={}",
+            "psi={} trigger_write={}{missing}",
             status(self.psi),
             status(self.trigger_write)
         )
@@ -109,56 +195,19 @@ mod imp {
     use std::path::Path;
     use std::sync::{Arc, Mutex};
 
-    use crate::domain::signal::{PressureClass, PressureScope, Signal};
+    use crate::domain::signal::Signal;
     use crate::error::AppResult;
     use crate::ports::EventSource;
     use crate::sys;
 
-    use super::{PSI_TOKEN_BASE, PsiCapability, PsiOps, parse_pressure};
+    use super::{PSI_TOKEN_BASE, PsiCapability, PsiOps, PsiSpec, parse_pressure};
 
     const WATCH_FLAGS: u32 = (libc::EPOLLIN | libc::EPOLLPRI | libc::EPOLLERR) as u32;
     const ERROR_FLAGS: u32 = (libc::EPOLLERR | libc::EPOLLHUP) as u32;
 
-    #[derive(Debug, Clone, Copy)]
-    struct WatchSpec {
-        class: PressureClass,
-        kind: &'static str,
-        path: &'static str,
-    }
-
-    fn default_specs() -> Vec<WatchSpec> {
-        vec![
-            WatchSpec {
-                class: PressureClass::Cpu,
-                kind: "some",
-                path: "/proc/pressure/cpu",
-            },
-            WatchSpec {
-                class: PressureClass::Memory,
-                kind: "some",
-                path: "/proc/pressure/memory",
-            },
-            WatchSpec {
-                class: PressureClass::Memory,
-                kind: "full",
-                path: "/proc/pressure/memory",
-            },
-            WatchSpec {
-                class: PressureClass::Io,
-                kind: "some",
-                path: "/proc/pressure/io",
-            },
-            WatchSpec {
-                class: PressureClass::Io,
-                kind: "full",
-                path: "/proc/pressure/io",
-            },
-        ]
-    }
-
     pub struct PsiSource {
         ops: Arc<dyn PsiOps>,
-        specs: Vec<WatchSpec>,
+        specs: Vec<PsiSpec>,
         watches: Vec<Option<RawFd>>,
         tokens: Vec<u64>,
         enter_us: u64,
@@ -173,8 +222,8 @@ mod imp {
             enter_ms: u64,
             window_ms: u64,
             capability: Arc<Mutex<PsiCapability>>,
+            specs: Vec<PsiSpec>,
         ) -> Self {
-            let specs = default_specs();
             let tokens = (0..specs.len())
                 .map(|index| PSI_TOKEN_BASE + index as u64)
                 .collect();
@@ -201,13 +250,13 @@ mod imp {
         fn open_watch(&self, index: usize) -> io::Result<RawFd> {
             let spec = &self.specs[index];
             let trigger = self.trigger(index);
-            let fd = self.ops.open(Path::new(spec.path))?;
+            let fd = self.ops.open(Path::new(&spec.path))?;
 
             match self.ops.write(fd, trigger.as_bytes()) {
                 Ok(()) => Ok(fd),
                 Err(error) if error.raw_os_error() == Some(libc::EBUSY) => {
                     self.ops.close(fd);
-                    let fd = self.ops.open(Path::new(spec.path))?;
+                    let fd = self.ops.open(Path::new(&spec.path))?;
                     match self.ops.write(fd, trigger.as_bytes()) {
                         Ok(()) => Ok(fd),
                         Err(error) => {
@@ -264,9 +313,10 @@ mod imp {
             let mut registered = Vec::new();
             let mut psi = false;
             let mut trigger_write = false;
+            let mut missing = Vec::new();
 
             for index in 0..self.specs.len() {
-                let exists = self.ops.exists(Path::new(self.specs[index].path));
+                let exists = self.ops.exists(Path::new(&self.specs[index].path));
                 match self.open_watch(index) {
                     Ok(fd) => match sys::epoll_add(epoll_fd, fd, self.tokens[index], WATCH_FLAGS) {
                         Ok(()) => {
@@ -277,10 +327,12 @@ mod imp {
                         }
                         Err(_) => {
                             self.ops.close(fd);
+                            missing.push(self.specs[index].path.clone());
                             psi |= exists;
                         }
                     },
                     Err(_) => {
+                        missing.push(self.specs[index].path.clone());
                         psi |= exists;
                     }
                 }
@@ -289,6 +341,7 @@ mod imp {
             let mut capability = self.capability.lock().expect("psi capability");
             capability.psi = psi;
             capability.trigger_write = trigger_write;
+            capability.missing = missing;
 
             Ok(registered)
         }
@@ -322,7 +375,7 @@ mod imp {
 
             Ok(vec![Signal::Pressure {
                 class: self.specs[index].class,
-                scope: PressureScope::Host,
+                scope: self.specs[index].scope.clone(),
                 reading,
             }])
         }
@@ -346,7 +399,7 @@ mod imp {
     use crate::error::AppResult;
     use crate::ports::EventSource;
 
-    use super::{PsiCapability, PsiOps};
+    use super::{PsiCapability, PsiOps, PsiSpec};
 
     /// Non-Linux fallback: PSI is a Linux interface.
     pub struct PsiSource;
@@ -357,6 +410,7 @@ mod imp {
             _enter_ms: u64,
             _window_ms: u64,
             _capability: Arc<Mutex<PsiCapability>>,
+            _specs: Vec<PsiSpec>,
         ) -> Self {
             Self
         }
@@ -412,6 +466,7 @@ mod tests {
         let capability = PsiCapability {
             psi: true,
             trigger_write: false,
+            missing: Vec::new(),
         };
         assert_eq!(capability.label(), "psi=ok trigger_write=unavailable");
     }
@@ -428,7 +483,7 @@ mod linux_tests {
     use crate::ports::EventSource;
     use crate::sys;
 
-    use super::{PSI_TOKEN_BASE, PsiCapability, PsiOps, PsiSource};
+    use super::{PSI_TOKEN_BASE, PsiCapability, PsiOps, PsiSource, PsiSpec};
 
     struct FakePsiOps {
         fixture: Vec<u8>,
@@ -492,7 +547,7 @@ mod linux_tests {
 
     fn source(ops: Arc<FakePsiOps>) -> (PsiSource, Arc<Mutex<PsiCapability>>, sys::Fd) {
         let capability = Arc::new(Mutex::new(PsiCapability::default()));
-        let source = PsiSource::new(ops, 50, 1000, Arc::clone(&capability));
+        let source = PsiSource::new(ops, 50, 1000, Arc::clone(&capability), super::host_specs());
         let epoll = sys::epoll_create().expect("epoll");
         (source, capability, epoll)
     }
@@ -513,7 +568,8 @@ mod linux_tests {
             *capability.lock().expect("capability"),
             PsiCapability {
                 psi: true,
-                trigger_write: true
+                trigger_write: true,
+                missing: Vec::new(),
             }
         );
     }
@@ -537,13 +593,39 @@ mod linux_tests {
         let tokens = psi.register(epoll.raw()).expect("register");
 
         assert!(tokens.is_empty());
-        assert_eq!(
-            *capability.lock().expect("capability"),
-            PsiCapability {
-                psi: false,
-                trigger_write: false
-            }
-        );
+        let capability = capability.lock().expect("capability");
+        assert!(!capability.psi);
+        assert!(!capability.trigger_write);
+        assert!(!capability.missing.is_empty());
+    }
+
+    #[test]
+    fn cgroup_spec_emits_cgroup_scope() {
+        let ops = Arc::new(FakePsiOps::new(b"some avg10=1.00 total=1\n"));
+        let capability = Arc::new(Mutex::new(PsiCapability::default()));
+        let specs = vec![PsiSpec {
+            class: PressureClass::Memory,
+            scope: PressureScope::Cgroup("kubepods.slice".to_string()),
+            kind: "some",
+            path: "/sys/fs/cgroup/kubepods.slice/memory.pressure".to_string(),
+        }];
+        let ops_dyn: Arc<dyn PsiOps> = ops.clone();
+        let mut psi = PsiSource::new(ops_dyn, 50, 1000, Arc::clone(&capability), specs);
+        let epoll = sys::epoll_create().expect("epoll");
+        psi.register(epoll.raw()).expect("register");
+
+        let signals = psi
+            .handle(PSI_TOKEN_BASE, libc::EPOLLPRI as u32)
+            .expect("handle");
+        match signals.as_slice() {
+            [
+                Signal::Pressure {
+                    scope: PressureScope::Cgroup(name),
+                    ..
+                },
+            ] => assert_eq!(name, "kubepods.slice"),
+            other => panic!("unexpected signals: {other:?}"),
+        }
     }
 
     #[test]
