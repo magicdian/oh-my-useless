@@ -33,6 +33,15 @@
       "last_error": null,
       "log_ref": ".phronia/.runtime/integration-logs/fix-psi-trigger-loop-2026-11-14T13-33-25-823Z.log",
       "updated_at": "2026-11-14T13:33:30.299Z"
+    },
+    "spec_sync": {
+      "status": "synced",
+      "commit": "f5b3c21e9d692155d8c4a2303961ca068e0e5f58",
+      "synced_at": "2026-11-14T13:34:22.332Z",
+      "refs": [
+        ".phronia/tasks/11-14-fix-psi-trigger-loop"
+      ],
+      "mode": "agent"
     }
   }
 }
