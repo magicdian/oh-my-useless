@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  OMV_VERSION: "2611.6.1"
+
+jobs:
+  version:
+    name: Version surfaces
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Install OMV
+        run: npm install -g "@magicdian/omv@${OMV_VERSION}"
+      - name: Show version truth
+        run: omv current --json
+      - name: Check target drift
+        run: omv sync --check --json
+      - name: Pull requests must not write version truth
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$BASE_REF"
+          changed="$(git diff --name-only "origin/$BASE_REF...HEAD" -- \
+            .omv/state.toml .omv/finalizations.toml)"
+          if [ -n "$changed" ]; then
+            printf 'PR must not change version truth:\n%s\n' "$changed" >&2
+            exit 1
+          fi
+          grep -q 'release_mode = "pipeline"' .omv/config.toml
+
+  linux:
+    name: Linux (fmt, clippy, test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo test --all-targets --locked
+
+  macos:
+    name: macOS (compile, test)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check
+        run: cargo check --all-targets --locked
+      - name: Test
+        run: cargo test --all-targets --locked

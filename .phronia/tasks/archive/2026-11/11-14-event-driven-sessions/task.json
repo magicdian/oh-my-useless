@@ -1,0 +1,47 @@
+{
+  "id": "event-driven-sessions",
+  "name": "event-driven-sessions",
+  "title": "feat: event-driven session detection",
+  "description": "Child 4: detect login/logout via inotify, probe tty idle only for existing sessions, and demote who/ps parsing to a fallback adapter",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "magicdian",
+  "assignee": "magicdian",
+  "createdAt": "2026-11-14",
+  "completedAt": "2026-11-14",
+  "branch": "dev",
+  "base_branch": "dev",
+  "worktree_path": null,
+  "commit": "16209a2b1a6123713131d19557d32e1deed156ec",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "11-14-event-driven-sensor-architecture",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "integration": {
+      "mode": "local",
+      "outcome": "landed",
+      "base_sha": "16209a2b1a6123713131d19557d32e1deed156ec",
+      "commit": "16209a2b1a6123713131d19557d32e1deed156ec",
+      "pr_url": null,
+      "verified": true,
+      "last_error": null,
+      "log_ref": ".phronia/.runtime/integration-logs/event-driven-sessions-2026-11-14T09-08-29-226Z.log",
+      "updated_at": "2026-11-14T09:08:29.849Z"
+    },
+    "spec_sync": {
+      "status": "synced",
+      "commit": "e28833690d9ab7a854e428ba2f23ae4655050c97",
+      "synced_at": "2026-11-14T09:08:59.892Z",
+      "refs": [
+        ".phronia/tasks/11-14-event-driven-sessions"
+      ],
+      "mode": "agent"
+    }
+  }
+}

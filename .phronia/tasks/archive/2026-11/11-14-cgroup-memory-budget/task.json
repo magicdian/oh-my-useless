@@ -1,0 +1,47 @@
+{
+  "id": "cgroup-memory-budget",
+  "name": "cgroup-memory-budget",
+  "title": "feat: cgroup-aware PSI and headroom memory ledger",
+  "description": "Child 3: watch per-cgroup pressure scopes, compute memory budget from MemAvailable minus reserve, apply it via chunked mmap ledger, and add systemd self-containment",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P0",
+  "creator": "magicdian",
+  "assignee": "magicdian",
+  "createdAt": "2026-11-14",
+  "completedAt": "2026-11-14",
+  "branch": "dev",
+  "base_branch": "dev",
+  "worktree_path": null,
+  "commit": "80a8af7dc68a77fe874849f12bae898d9d28f555",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "11-14-event-driven-sensor-architecture",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "integration": {
+      "mode": "local",
+      "outcome": "landed",
+      "base_sha": "80a8af7dc68a77fe874849f12bae898d9d28f555",
+      "commit": "80a8af7dc68a77fe874849f12bae898d9d28f555",
+      "pr_url": null,
+      "verified": true,
+      "last_error": null,
+      "log_ref": ".phronia/.runtime/integration-logs/cgroup-memory-budget-2026-11-14T08-48-56-850Z.log",
+      "updated_at": "2026-11-14T08:48:57.460Z"
+    },
+    "spec_sync": {
+      "status": "synced",
+      "commit": "25ee41b14bda932a8bf903f13db67500cfcb742e",
+      "synced_at": "2026-11-14T08:49:37.392Z",
+      "refs": [
+        ".phronia/tasks/11-14-cgroup-memory-budget"
+      ],
+      "mode": "agent"
+    }
+  }
+}

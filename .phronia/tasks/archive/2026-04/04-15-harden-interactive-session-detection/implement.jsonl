@@ -1,0 +1,4 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/daemon-install-contracts.md", "reason": "Interactive session counting changes runtime-visible contracts and config semantics"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Keep session parsing and counting centralized instead of duplicating heuristics"}

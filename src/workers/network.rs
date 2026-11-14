@@ -1,0 +1,183 @@
+use std::io::{Read, Write};
+use std::net::{TcpStream, ToSocketAddrs};
+use std::path::Path;
+use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use crate::adapters::netstat::{self, RealNetOps, TrafficLedger};
+use crate::domain::should_start_burst;
+use crate::runtime::Store;
+
+pub fn run(store: Arc<Store>) {
+    let mut cursor = 0usize;
+    let ledger = TrafficLedger::default();
+    let ops = RealNetOps;
+    let mut gate_warned = false;
+
+    while !store.is_shutdown() {
+        let state = store.snapshot();
+        let targets = state.config.network.targets.clone();
+        let allowed = state.directives.network.allowed;
+        let max_mbps = state.config.network.max_mbps;
+        let duty_percent = state.directives.network.duty_percent;
+        let timeout_secs = state.config.network.connect_timeout_secs;
+        let burst_seconds = state.config.network.window.burst_secs_max.max(1);
+        let probe_window = Duration::from_millis(state.config.network.probe_window_ms.max(1));
+
+        if !allowed || targets.is_empty() || max_mbps == 0 {
+            thread::sleep(Duration::from_secs(1));
+            continue;
+        }
+
+        match netstat::estimate(
+            &ops,
+            &ledger,
+            Path::new("/sys/class/net"),
+            probe_window,
+            thread::sleep,
+        ) {
+            Ok(estimate)
+                if !should_start_burst(
+                    estimate.ingress_kbps,
+                    estimate.egress_kbps,
+                    state.config.network.external_traffic_kbps,
+                ) =>
+            {
+                eprintln!(
+                    "[useless] network burst skipped: external ingress={}kbps egress={}kbps",
+                    estimate.ingress_kbps, estimate.egress_kbps
+                );
+                thread::sleep(Duration::from_secs(1));
+                continue;
+            }
+            Ok(_) => {}
+            Err(error) => {
+                if !gate_warned {
+                    eprintln!("[useless] network gate unavailable, using max_mbps only: {error}");
+                    gate_warned = true;
+                }
+            }
+        }
+
+        if !store.network_allowed() {
+            continue;
+        }
+
+        let target = pick_target(&targets, &mut cursor);
+        let max_bytes_per_sec = max_mbps as u64 * 125_000 * duty_percent as u64 / 100;
+        if max_bytes_per_sec == 0 {
+            thread::sleep(Duration::from_secs(1));
+            continue;
+        }
+
+        let _ = download_until_paused(
+            &store,
+            &ledger,
+            &target,
+            max_bytes_per_sec,
+            Duration::from_secs(burst_seconds),
+            Duration::from_secs(timeout_secs.max(1)),
+        );
+        thread::sleep(Duration::from_millis(250));
+    }
+}
+
+fn download_until_paused(
+    store: &Store,
+    ledger: &TrafficLedger,
+    target: &str,
+    max_bytes_per_sec: u64,
+    max_duration: Duration,
+    connect_timeout: Duration,
+) -> std::io::Result<()> {
+    let parsed = ParsedUrl::parse(target)?;
+    let mut addresses = (parsed.host.as_str(), parsed.port).to_socket_addrs()?;
+    let address = addresses
+        .next()
+        .ok_or_else(|| std::io::Error::other("no address resolved for target"))?;
+    let mut stream = TcpStream::connect_timeout(&address, connect_timeout)?;
+    stream.set_read_timeout(Some(Duration::from_millis(500)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+    let request = format!(
+        "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: useless/0.1.0\r\nConnection: close\r\n\r\n",
+        parsed.path, parsed.host
+    );
+    stream.write_all(request.as_bytes())?;
+    ledger.add_tx(request.len() as u64);
+
+    let started = Instant::now();
+    let mut buffer = [0u8; 32 * 1024];
+    let mut window_started = Instant::now();
+    let mut window_bytes = 0u64;
+
+    loop {
+        if store.is_shutdown() || !store.network_allowed() || started.elapsed() >= max_duration {
+            break;
+        }
+
+        if window_started.elapsed() >= Duration::from_secs(1) {
+            window_started = Instant::now();
+            window_bytes = 0;
+        }
+        if window_bytes >= max_bytes_per_sec {
+            thread::sleep(Duration::from_millis(100));
+            continue;
+        }
+
+        let remaining = max_bytes_per_sec.saturating_sub(window_bytes).max(1);
+        let read_cap = remaining.min(buffer.len() as u64) as usize;
+        match stream.read(&mut buffer[..read_cap]) {
+            Ok(0) => break,
+            Ok(bytes_read) => {
+                window_bytes += bytes_read as u64;
+                ledger.add_rx(bytes_read as u64);
+            }
+            Err(error)
+                if error.kind() == std::io::ErrorKind::WouldBlock
+                    || error.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                continue;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    Ok(())
+}
+
+fn pick_target(targets: &[String], cursor: &mut usize) -> String {
+    if targets.is_empty() {
+        return String::new();
+    }
+    let jitter = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.subsec_nanos() as usize)
+        .unwrap_or(0);
+    let index = (*cursor + jitter) % targets.len();
+    *cursor = (*cursor + 1) % targets.len();
+    targets[index].clone()
+}
+
+struct ParsedUrl {
+    host: String,
+    port: u16,
+    path: String,
+}
+
+impl ParsedUrl {
+    fn parse(url: &str) -> std::io::Result<Self> {
+        let without_scheme = url
+            .strip_prefix("http://")
+            .ok_or_else(|| std::io::Error::other("only plain http:// targets are supported"))?;
+        let (host_port, path) = match without_scheme.split_once('/') {
+            Some((host_port, path)) => (host_port, format!("/{}", path)),
+            None => (without_scheme, "/".to_string()),
+        };
+        let (host, port) = match host_port.split_once(':') {
+            Some((host, port)) => (host.to_string(), port.parse::<u16>().unwrap_or(80)),
+            None => (host_port.to_string(), 80),
+        };
+        Ok(Self { host, port, path })
+    }
+}

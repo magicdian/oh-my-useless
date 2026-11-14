@@ -1,0 +1,47 @@
+{
+  "id": "self-update-and-ci-release",
+  "name": "self-update-and-ci-release",
+  "title": "Add self-update and GitHub Actions release pipeline",
+  "description": "Add a root-safe useless update command backed by the self_update crate (GitHub Releases, checksum digest verification, auto service restart) and a tag-driven GitHub Actions pipeline that runs fmt/clippy/tests, builds multi-target Linux release archives with sha256 checksums, and publishes them so the self-updater can consume them.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "jdjingdian",
+  "assignee": "jdjingdian",
+  "createdAt": "2026-11-14",
+  "completedAt": "2026-11-14",
+  "branch": "dev",
+  "base_branch": "dev",
+  "worktree_path": null,
+  "commit": "cb388650f21b51ea5f730810e1bed207ffcfb2a2",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "integration": {
+      "mode": "local",
+      "outcome": "landed",
+      "base_sha": "cb388650f21b51ea5f730810e1bed207ffcfb2a2",
+      "commit": "cb388650f21b51ea5f730810e1bed207ffcfb2a2",
+      "pr_url": null,
+      "verified": true,
+      "last_error": null,
+      "log_ref": ".phronia/.runtime/integration-logs/self-update-and-ci-release-2026-11-14T11-35-12-380Z.log",
+      "updated_at": "2026-11-14T11:35:13.754Z"
+    },
+    "spec_sync": {
+      "status": "synced",
+      "commit": "28bf96274784377bdeab296876e464842fc5f518",
+      "synced_at": "2026-11-14T11:36:37.597Z",
+      "refs": [
+        ".phronia/tasks/11-14-self-update-and-ci-release"
+      ],
+      "mode": "agent"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+schema_version = 1
+requires_omv = "2611.2.1"
+locale = "en-US"
+timezone = "UTC"
+project_profile = "personal"
+version_output = "date-triplet"
+build_policy = "daily-reset"
+ntp_enabled = true
+release_mode = "pipeline"

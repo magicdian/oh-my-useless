@@ -1,0 +1,47 @@
+{
+  "id": "omv-pipeline-versioning",
+  "name": "omv-pipeline-versioning",
+  "title": "Adopt OMV pipeline versioning",
+  "description": "Adopt OMV (.omv/state.toml) as the single version truth in release_mode=pipeline, add a CI release job that bumps, commits, and tags versions, and make the existing multi-target build/upload workflow consume OMV tags. Preserve self-update and add PR drift guards.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "jdjingdian",
+  "assignee": "jdjingdian",
+  "createdAt": "2026-11-14",
+  "completedAt": "2026-11-14",
+  "branch": null,
+  "base_branch": "dev",
+  "worktree_path": null,
+  "commit": "e26b0cd089ca042709d4f3a12405f813c6caea63",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "integration": {
+      "mode": "local",
+      "outcome": "landed",
+      "base_sha": "e26b0cd089ca042709d4f3a12405f813c6caea63",
+      "commit": "e26b0cd089ca042709d4f3a12405f813c6caea63",
+      "pr_url": null,
+      "verified": true,
+      "last_error": null,
+      "log_ref": ".phronia/.runtime/integration-logs/omv-pipeline-versioning-2026-11-14T12-08-33-160Z.log",
+      "updated_at": "2026-11-14T12:08:34.430Z"
+    },
+    "spec_sync": {
+      "status": "synced",
+      "commit": "ccfd71fb963852b85c1251e13d25fd4b01ef7d66",
+      "synced_at": "2026-11-14T12:09:28.418Z",
+      "refs": [
+        ".phronia/tasks/11-14-omv-pipeline-versioning"
+      ],
+      "mode": "agent"
+    }
+  }
+}

@@ -1,0 +1,4 @@
+{"file": ".opencode/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".opencode/commands/trellis/check.md", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Review deduplication of worker policy and install helpers"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Review config-flow and service-install boundaries"}

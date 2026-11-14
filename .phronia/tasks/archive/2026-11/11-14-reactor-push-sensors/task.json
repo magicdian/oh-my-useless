@@ -1,0 +1,47 @@
+{
+  "id": "reactor-push-sensors",
+  "name": "reactor-push-sensors",
+  "title": "feat: epoll reactor with push-based host pressure",
+  "description": "Child 2: add epoll reactor, signalfd/timerfd, host PSI trigger watcher, adaptive sampler fallback, capability reporting, and transition journal",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P0",
+  "creator": "magicdian",
+  "assignee": "magicdian",
+  "createdAt": "2026-11-14",
+  "completedAt": "2026-11-14",
+  "branch": "dev",
+  "base_branch": "dev",
+  "worktree_path": null,
+  "commit": "a35a01d3985844fc943190846e853d1d2be11845",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "11-14-event-driven-sensor-architecture",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "integration": {
+      "mode": "local",
+      "outcome": "landed",
+      "base_sha": "a35a01d3985844fc943190846e853d1d2be11845",
+      "commit": "a35a01d3985844fc943190846e853d1d2be11845",
+      "pr_url": null,
+      "verified": true,
+      "last_error": null,
+      "log_ref": ".phronia/.runtime/integration-logs/reactor-push-sensors-2026-11-14T08-29-51-032Z.log",
+      "updated_at": "2026-11-14T08:29:51.655Z"
+    },
+    "spec_sync": {
+      "status": "synced",
+      "commit": "1ef1b620cf164f917a9f6f9db89f43cffba3d0ad",
+      "synced_at": "2026-11-14T08:30:23.707Z",
+      "refs": [
+        ".phronia/tasks/11-14-reactor-push-sensors"
+      ],
+      "mode": "agent"
+    }
+  }
+}

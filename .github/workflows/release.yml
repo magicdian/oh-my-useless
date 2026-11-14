@@ -1,0 +1,157 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: omv-release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  OMV_VERSION: "2611.6.1"
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo test --all-targets --locked
+
+  version:
+    name: Assign version and tag
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Install OMV
+        run: npm install -g "@magicdian/omv@${OMV_VERSION}"
+      - name: Release transaction
+        id: release
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_REF_NAME}" != "main" ]; then
+            echo "releases must run on main, not ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+
+          head_msg="$(git log -1 --pretty=%s)"
+          if [[ "$head_msg" == "chore(release): "* ]]; then
+            version="${head_msg#chore(release): }"
+            echo "resuming release $version from HEAD"
+          else
+            current="$(omv current --json | jq -r '.data.version')"
+            version="$(omv bump --expect "$current" \
+              --now "$(date -u +%F)" --as-release --json \
+              | jq -r '.data.version')"
+            omv sync --check --json
+
+            # v1 Rust targets do not update Cargo.lock.
+            cargo metadata --format-version 1 > /dev/null
+
+            changed="$(git status --porcelain | cut -c4-)"
+            unexpected="$(printf '%s\n' "$changed" \
+              | grep -vE '^(\.omv/|Cargo\.toml$|Cargo\.lock$|src/generated/version\.rs$)' \
+              || true)"
+            if [ -n "$unexpected" ]; then
+              printf 'unexpected files in release diff:\n%s\n' "$unexpected" >&2
+              exit 1
+            fi
+
+            git config user.name "omv-release-bot"
+            git config user.email "omv-release-bot@users.noreply.github.com"
+            git add .omv Cargo.toml Cargo.lock src/generated/version.rs
+            git commit -m "chore(release): $version"
+            git push origin HEAD:main
+          fi
+
+          if git rev-parse -q --verify "refs/tags/$version" > /dev/null; then
+            echo "tag $version already exists"
+          else
+            git tag -a "$version" \
+              -m "omv-release receipt: source=${GITHUB_SHA} run=${GITHUB_RUN_ID}"
+            git push origin "$version"
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  create-release:
+    name: Create release
+    needs:
+      - test
+      - version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Detect existing release
+        id: existing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ needs.version.outputs.version }}" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.existing.outputs.exists != 'true'
+        uses: taiki-e/create-gh-release-action@v1
+        with:
+          ref: refs/tags/${{ needs.version.outputs.version }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  upload:
+    name: Upload ${{ matrix.target }}
+    needs:
+      - test
+      - version
+      - create-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-gnu
+          - aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ needs.version.outputs.version }}
+      - uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: useless
+          target: ${{ matrix.target }}
+          ref: refs/tags/${{ needs.version.outputs.version }}
+          archive: useless-$target
+          checksum: sha256
+          include: README.md,LICENSE
+          locked: true
+          token: ${{ secrets.GITHUB_TOKEN }}
