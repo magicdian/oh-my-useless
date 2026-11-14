@@ -15,12 +15,24 @@
   "branch": "dev",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
+  "commit": "731154b5306e78d95b6bb6d872aba9002cd1cc25",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": "11-14-event-driven-sensor-architecture",
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {
+    "integration": {
+      "mode": "local",
+      "outcome": "landed",
+      "base_sha": "731154b5306e78d95b6bb6d872aba9002cd1cc25",
+      "commit": "731154b5306e78d95b6bb6d872aba9002cd1cc25",
+      "pr_url": null,
+      "verified": true,
+      "last_error": null,
+      "log_ref": ".phronia/.runtime/integration-logs/domain-policy-ports-2026-11-14T07-51-53-385Z.log",
+      "updated_at": "2026-11-14T07:51:53.890Z"
+    }
+  }
 }
