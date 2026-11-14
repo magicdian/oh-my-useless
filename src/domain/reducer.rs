@@ -40,12 +40,13 @@ pub fn reduce(
         }
     }
 
-    let interactive_active = state
-        .last_interactive
-        .map(|last| {
-            now.duration_since(last) < Duration::from_secs(config.global.interactive_grace_secs)
-        })
-        .unwrap_or(false);
+    let interactive_active = !state.sessions.is_empty()
+        || state
+            .last_interactive
+            .map(|last| {
+                now.duration_since(last) < Duration::from_secs(config.global.interactive_grace_secs)
+            })
+            .unwrap_or(false);
 
     let pressure_signal = matches!(signal, Signal::Pressure { .. });
     let pressure_active = pressure_signal
@@ -633,6 +634,25 @@ mod tests {
 
         assert_eq!(output.mode, Mode::Suspended);
         assert!(output.summary.contains("scope=kubepods.slice"));
+    }
+
+    #[test]
+    fn active_session_stays_suspended_past_grace() {
+        let config = Config::default();
+        let mut state = PolicyState::new(1);
+        let start = Instant::now();
+
+        reduce(&mut state, &one_session(), &config, start);
+        let output = reduce(
+            &mut state,
+            &Signal::Sample(host_sample(0, 80)),
+            &config,
+            start + Duration::from_secs(config.global.interactive_grace_secs + 60),
+        );
+
+        assert_eq!(output.mode, Mode::Suspended);
+        assert!(!output.cpu.allowed);
+        assert!(output.reasons.contains(&ReasonCode::InteractiveSession));
     }
 
     #[test]

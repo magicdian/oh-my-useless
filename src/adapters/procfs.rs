@@ -31,7 +31,7 @@ impl Default for ProcfsSampler {
 }
 
 impl Sampler for ProcfsSampler {
-    fn sample(&mut self, active_tty_idle_secs: u64) -> AppResult<Vec<Signal>> {
+    fn sample(&mut self, _active_tty_idle_secs: u64) -> AppResult<Vec<Signal>> {
         let cores = std::thread::available_parallelism()
             .map(|value| value.get())
             .unwrap_or(1)
@@ -48,21 +48,17 @@ impl Sampler for ProcfsSampler {
             .saturating_sub(meminfo.swap_free_kib)
             .saturating_mul(1024);
 
-        let sessions = read_sessions(active_tty_idle_secs);
         let (net_rx_bytes_per_sec, net_tx_bytes_per_sec) = self.read_network_rates()?;
 
-        Ok(vec![
-            Signal::Sample(SampleSnapshot {
-                load_percent,
-                mem_available_percent,
-                mem_available_bytes: meminfo.available_kib.saturating_mul(1024),
-                mem_total_bytes: meminfo.total_kib.saturating_mul(1024),
-                swap_used_bytes,
-                net_rx_bytes_per_sec,
-                net_tx_bytes_per_sec,
-            }),
-            Signal::Sessions(sessions),
-        ])
+        Ok(vec![Signal::Sample(SampleSnapshot {
+            load_percent,
+            mem_available_percent,
+            mem_available_bytes: meminfo.available_kib.saturating_mul(1024),
+            mem_total_bytes: meminfo.total_kib.saturating_mul(1024),
+            swap_used_bytes,
+            net_rx_bytes_per_sec,
+            net_tx_bytes_per_sec,
+        })])
     }
 }
 
@@ -137,7 +133,7 @@ fn read_load_one() -> AppResult<f64> {
     Ok(value.parse::<f64>()?)
 }
 
-fn read_sessions(active_tty_idle_secs: u64) -> SessionSet {
+pub(crate) fn read_sessions(active_tty_idle_secs: u64) -> SessionSet {
     let active_sessions = Command::new("who")
         .args(["-u", "--ips"])
         .output()

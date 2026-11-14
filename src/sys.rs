@@ -104,6 +104,7 @@ pub fn pread(fd: RawFd, buffer: &mut [u8]) -> io::Result<usize> {
 
 #[cfg(target_os = "linux")]
 mod linux {
+    use std::ffi::CString;
     use std::io;
     use std::mem::MaybeUninit;
     use std::os::unix::io::RawFd;
@@ -254,6 +255,36 @@ mod linux {
         true
     }
 
+    pub fn inotify_create() -> io::Result<Fd> {
+        let fd = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Fd::from_raw(fd))
+    }
+
+    pub fn inotify_add_watch(fd: RawFd, path: &std::path::Path, mask: u32) -> io::Result<i32> {
+        let path = CString::new(path.as_os_str().as_encoded_bytes())
+            .map_err(|_| io::Error::other("path contains a NUL byte"))?;
+        let watch = unsafe { libc::inotify_add_watch(fd, path.as_ptr(), mask) };
+        if watch < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(watch)
+    }
+
+    pub fn read_inotify(fd: RawFd, buffer: &mut [u8]) -> io::Result<usize> {
+        let rc = unsafe { libc::read(fd, buffer.as_mut_ptr() as *mut libc::c_void, buffer.len()) };
+        if rc < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::WouldBlock {
+                return Ok(0);
+            }
+            return Err(error);
+        }
+        Ok(rc as usize)
+    }
+
     #[cfg(test)]
     pub fn pipe() -> io::Result<(Fd, Fd)> {
         let mut fds = [0; 2];
@@ -281,8 +312,8 @@ mod linux {
 
 #[cfg(target_os = "linux")]
 pub use linux::{
-    epoll_add, epoll_create, epoll_wait, inotify_probe, read_signal, signalfd_create, timerfd_arm,
-    timerfd_create, timerfd_drain,
+    epoll_add, epoll_create, epoll_wait, inotify_add_watch, inotify_create, inotify_probe,
+    read_inotify, read_signal, signalfd_create, timerfd_arm, timerfd_create, timerfd_drain,
 };
 
 #[cfg(target_os = "linux")]
@@ -344,4 +375,19 @@ pub fn read_signal(_fd: RawFd) -> io::Result<i32> {
 #[cfg(not(target_os = "linux"))]
 pub fn inotify_probe() -> bool {
     false
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn inotify_create() -> io::Result<Fd> {
+    unsupported()
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn inotify_add_watch(_fd: RawFd, _path: &std::path::Path, _mask: u32) -> io::Result<i32> {
+    unsupported()
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn read_inotify(_fd: RawFd, _buffer: &mut [u8]) -> io::Result<usize> {
+    unsupported()
 }

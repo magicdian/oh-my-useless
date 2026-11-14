@@ -7,6 +7,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::adapters::cgroups::{self, ScopeSet};
 use crate::adapters::psi::{cgroup_specs, host_specs};
+use crate::adapters::sessions::{self, LegacySessionSampler, SessionMonitor, SessionRuntime};
 use crate::adapters::{ProcfsSampler, PsiCapability, PsiSource, RealPsiOps, SignalSource};
 use crate::config::{Config, JOURNAL_FILE_PATH, PID_FILE_PATH, STATE_FILE_PATH, load_config};
 use crate::domain::{
@@ -55,8 +56,14 @@ pub fn run(config_path: &Path) -> AppResult<()> {
 
     let capability = Arc::new(Mutex::new(PsiCapability::default()));
     let mut current_config = config;
-    let (mut reactor, mut scopes) = build_reactor(&current_config, &capability)?;
-    let mut capabilities = Capabilities::detect(&capability, &scopes);
+    let ReactorBundle {
+        mut reactor,
+        mut scopes,
+        mut session_monitor,
+        mut legacy_sessions,
+    } = build_reactor(&current_config, &capability)?;
+    let mut capabilities = Capabilities::detect(&capability, &scopes)
+        .with_session_source(session_source(&session_monitor));
 
     let mut journal = Journal::with_file(512, Path::new(JOURNAL_FILE_PATH).to_path_buf());
     let mut last_summary = String::new();
@@ -79,10 +86,13 @@ pub fn run(config_path: &Path) -> AppResult<()> {
                 Ok(updated) => {
                     current_config = Arc::new(updated);
                     store.replace_config(Arc::clone(&current_config));
-                    let (next_reactor, next_scopes) = build_reactor(&current_config, &capability)?;
-                    reactor = next_reactor;
-                    scopes = next_scopes;
-                    capabilities = Capabilities::detect(&capability, &scopes);
+                    let bundle = build_reactor(&current_config, &capability)?;
+                    reactor = bundle.reactor;
+                    scopes = bundle.scopes;
+                    session_monitor = bundle.session_monitor;
+                    legacy_sessions = bundle.legacy_sessions;
+                    capabilities = Capabilities::detect(&capability, &scopes)
+                        .with_session_source(session_source(&session_monitor));
                     last_summary.clear();
                     last_scope_refresh = Instant::now();
                     next_sample = clock.now();
@@ -104,10 +114,13 @@ pub fn run(config_path: &Path) -> AppResult<()> {
             let own = cgroups::own_cgroup(cgroup_root);
             let next = cgroups::discover(&current_config.sensor.watch_slices, cgroup_root, &own);
             if next.watched != scopes.watched || next.missing != scopes.missing {
-                let (next_reactor, next_scopes) = build_reactor(&current_config, &capability)?;
-                reactor = next_reactor;
-                scopes = next_scopes;
-                capabilities = Capabilities::detect(&capability, &scopes);
+                let bundle = build_reactor(&current_config, &capability)?;
+                reactor = bundle.reactor;
+                scopes = bundle.scopes;
+                session_monitor = bundle.session_monitor;
+                legacy_sessions = bundle.legacy_sessions;
+                capabilities = Capabilities::detect(&capability, &scopes)
+                    .with_session_source(session_source(&session_monitor));
                 eprintln!(
                     "[useless] cgroup scopes refreshed: {}",
                     capabilities.label()
@@ -116,20 +129,41 @@ pub fn run(config_path: &Path) -> AppResult<()> {
             last_scope_refresh = Instant::now();
         }
 
-        let wait_until = next_sample;
+        let sample_due = next_sample;
+        let mut wait_until = next_sample;
+        if let Some(monitor) = &session_monitor {
+            if let Some(due) = monitor.next_deadline() {
+                wait_until = due.min(wait_until);
+            }
+        }
+
         let mut batch = reactor.wait(wait_until)?;
         if TERMINATE_FLAG.load(Ordering::Relaxed) {
             break;
         }
 
         let now = clock.now();
-        if now >= wait_until {
+        if let Some(signal) = session_monitor
+            .as_ref()
+            .and_then(|monitor| monitor.initial())
+        {
+            batch.push(signal);
+        }
+        if now >= sample_due {
             match sampler.sample(current_config.global.active_tty_idle_secs) {
                 Ok(mut sample) => batch.append(&mut sample),
                 Err(error) => batch.push(Signal::SourceDegraded {
                     source: sampler.backend_name().to_string(),
                     message: error.to_string(),
                 }),
+            }
+            if let Some(legacy) = &mut legacy_sessions {
+                batch.push(legacy.sample());
+            }
+        }
+        if let Some(monitor) = &session_monitor {
+            if let Some(signal) = monitor.probe(now) {
+                batch.push(signal);
             }
         }
 
@@ -211,10 +245,17 @@ pub fn run(config_path: &Path) -> AppResult<()> {
     Ok(())
 }
 
+struct ReactorBundle {
+    reactor: Reactor,
+    scopes: ScopeSet,
+    session_monitor: Option<SessionMonitor>,
+    legacy_sessions: Option<LegacySessionSampler>,
+}
+
 fn build_reactor(
     config: &Config,
     capability: &Arc<Mutex<PsiCapability>>,
-) -> AppResult<(Reactor, ScopeSet)> {
+) -> AppResult<ReactorBundle> {
     let mut reactor = Reactor::new()?;
     reactor.add(Box::new(SignalSource::new(
         2,
@@ -247,7 +288,21 @@ fn build_reactor(
     );
     reactor.add(Box::new(psi))?;
 
-    Ok((reactor, scopes))
+    let (session_monitor, legacy_sessions) =
+        match sessions::start(3, config.global.active_tty_idle_secs) {
+            SessionRuntime::Event { source, monitor } => {
+                reactor.add(source)?;
+                (Some(monitor), None)
+            }
+            SessionRuntime::Legacy(sampler) => (None, Some(sampler)),
+        };
+
+    Ok(ReactorBundle {
+        reactor,
+        scopes,
+        session_monitor,
+        legacy_sessions,
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -257,6 +312,7 @@ struct Capabilities {
     missing_slices: Vec<String>,
     cgroup_v2: bool,
     inotify: bool,
+    session_source: &'static str,
 }
 
 impl Capabilities {
@@ -267,7 +323,13 @@ impl Capabilities {
             missing_slices: scopes.missing.clone(),
             cgroup_v2: Path::new("/sys/fs/cgroup/cgroup.controllers").exists(),
             inotify: sys::inotify_probe(),
+            session_source: "unknown",
         }
+    }
+
+    fn with_session_source(mut self, source: &'static str) -> Self {
+        self.session_source = source;
+        self
     }
 
     fn label(&self) -> String {
@@ -280,12 +342,17 @@ impl Capabilities {
             )
         };
         format!(
-            "{} {cgroups} cgroup_v2={} inotify={}",
+            "{} {cgroups} cgroup_v2={} inotify={} sessions={}",
             self.psi.label(),
             status(self.cgroup_v2),
-            status(self.inotify)
+            status(self.inotify),
+            self.session_source
         )
     }
+}
+
+fn session_source(monitor: &Option<SessionMonitor>) -> &'static str {
+    if monitor.is_some() { "inotify" } else { "who" }
 }
 
 fn status(value: bool) -> &'static str {

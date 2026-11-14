@@ -1,6 +1,7 @@
 pub mod cgroups;
 pub mod procfs;
 pub mod psi;
+pub mod sessions;
 pub mod signals;
 
 pub use procfs::ProcfsSampler;
