@@ -170,3 +170,26 @@ Wired a headroom-derived memory budget, replaced Vec allocation with a chunked m
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: Event-driven sensor architecture: child 4 session events
+<!-- phronia-session: v=2 fp=04f922b449c5f9e6 -->
+
+**Date**: 2026-11-14
+**Task**: Event-driven sensor architecture: child 4 session events
+**Branch**: `dev`
+
+### Summary
+
+Replaced per-sample who/ps detection with inotify logind/utmp sources, added a tracked/active tty atime probe, kept the legacy sampler as fallback, and fixed resume-while-active semantics.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8a5afaf` | feat(sessions): detect login and logout through inotify |
+| `16209a2` | chore(task): record event-driven sessions plan and child 4 spec delta |
+
+### Status
+
+[OK] **Completed**
