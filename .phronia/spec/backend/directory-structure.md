@@ -19,11 +19,23 @@ src/
 ├── main.rs         # command dispatch only
 ├── cli.rs          # CLI parsing and usage text
 ├── config.rs       # config paths, defaults, parsing, validation
-├── daemon.rs       # daemon lifecycle, signals, pid file
+├── daemon.rs       # composition root: sampler -> reducer -> store -> workers
 ├── install.rs      # install, uninstall, reload, status, service manager glue
-├── policy.rs       # pressure levels, burst scheduling, directives
-├── runtime.rs      # shared runtime state between supervisor and workers
-├── sensor.rs       # host observation and sensor backend abstraction
+├── ports.rs        # Sampler, Clock, StatePublisher, JournalSink, EventSource traits
+├── domain/
+│   ├── mod.rs      # public domain contract
+│   ├── signal.rs   # Signal, SampleSnapshot, SessionSet
+│   ├── state.rs    # Mode, ReasonCode, PolicyState, PolicyOutput
+│   ├── reducer.rs  # pure reduce(state, signal, config, now)
+│   ├── budget.rs   # memory budget arithmetic
+│   └── schedule.rs # burst/rest scheduler with an injected seed
+├── runtime/
+│   ├── mod.rs
+│   ├── store.rs    # generation counter + condvar for worker directives
+│   └── journal.rs  # bounded transition history
+├── adapters/
+│   ├── mod.rs
+│   └── procfs.rs   # /proc and who/ps observation; implements Sampler
 ├── error.rs        # AppResult / boxed_error helpers
 └── workers/
     ├── mod.rs      # worker registration
@@ -48,12 +60,17 @@ Use a dedicated module for each boundary:
 
 * command-line shape in `cli.rs`,
 * operator-visible config model in `config.rs`,
-* long-running process lifecycle in `daemon.rs`,
+* composition and lifecycle in `daemon.rs`,
 * install/service-manager concerns in `install.rs`,
-* reusable scheduling logic in `policy.rs`,
-* observation logic in `sensor.rs`.
+* pure decisions in `domain/` (no filesystem, clock, or logging),
+* observation in `adapters/` (emits `Signal`, never decides),
+* shared directives and transition history in `runtime/`.
 
 Do not collapse these concerns into `main.rs`.
+
+### Rule: Respect the layer direction
+
+`daemon.rs` may call `adapters`, `domain`, `runtime`, and `workers`. `adapters` may use `domain` types but never `reduce`. `workers` may read `runtime::Store` and the config values needed for actuation, but never decide policy. `domain` may depend on config data types, never on IO.
 
 ### Rule: Group executors by domain
 
@@ -71,8 +88,8 @@ Shared runtime state, policy outputs, and config structures belong in non-worker
 
 Examples:
 
-* `src/runtime.rs` defines shared state across threads.
-* `src/policy.rs` defines `PolicySnapshot` and `ModuleDirective`.
+* `src/runtime/store.rs` defines shared directives and the generation counter across threads.
+* `src/domain/state.rs` defines `PolicyOutput`, `ModuleDirective`, and `ReasonCode`.
 * `src/config.rs` defines `Config`, per-module sections, and install paths.
 
 ---
@@ -100,6 +117,14 @@ Avoid files like `utils.rs`, `common.rs`, or `misc.rs` unless the code is truly 
 
 Runtime logic stays in Rust modules under `src/`.
 Release and operator shell glue stays under `scripts/`.
+
+### Do not let adapters or workers decide policy
+
+Only `daemon.rs` calls `domain::reduce`. Adapters emit facts; workers apply directives. A worker that re-implements a threshold, or an adapter that returns a decision, is a layering regression.
+
+### Do not read the clock or filesystem from `domain/`
+
+Pass `now` into `reduce` and keep every observation behind an adapter. This is what makes the policy table-testable without a Linux host.
 
 ---
 

@@ -10,8 +10,8 @@ There is no frontend state layer today.
 
 The active state in this repository is backend/runtime state:
 
-* daemon runtime state in `src/runtime.rs`,
-* scheduling and pressure state in `src/policy.rs`,
+* daemon runtime state in `src/runtime/store.rs`,
+* scheduling and pressure state in `src/domain/state.rs`,
 * operator configuration in `src/config.rs`.
 
 That is backend state, not client-side UI state.

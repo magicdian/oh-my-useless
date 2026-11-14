@@ -48,7 +48,7 @@ CPU, memory, and network execution logic stays under `src/workers/`, while share
 Current examples:
 
 * config parsing test in `src/config.rs`
-* interactive-session policy test in `src/policy.rs`
+* interactive-session policy and behavior-parity tests in `src/domain/reducer.rs`
 
 If you add deterministic parsing, threshold, or scheduling logic, add or extend tests in the same module.
 

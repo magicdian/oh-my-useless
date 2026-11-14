@@ -14,6 +14,7 @@ Use this spec when a task changes any of the following:
 * Config fields or defaults in `src/config.rs`
 * systemd or init.d integration in `src/install.rs`
 * Daemon lifecycle, PID, signal, or reload behavior in `src/daemon.rs`
+* Policy transitions in `src/domain/` or observation sources in `src/adapters/`
 * Sensor/runtime behavior that changes operator-visible state transitions
 
 This is infra/cross-layer because one change can affect:
@@ -102,6 +103,9 @@ Network section:
 
 #### Runtime behavior
 
+* Policy evaluation is pure: `domain::reduce(state, signal, config, now)` performs no IO and reads no clock.
+* Adapters emit `Signal` values and never call the reducer; workers consume directives from `runtime::Store` and never compute policy.
+* The procfs sampler in `src/adapters/procfs.rs` is the current observation source and the permanent fallback for later event-driven sources.
 * The daemon samples host state every `check_interval_secs`.
 * Interactive-session detection uses active TTY sessions from `who -u --ips`.
 * A session is considered active only if its idle time is `<= active_tty_idle_secs`.
@@ -205,8 +209,8 @@ At minimum, keep these checks passing when this contract changes:
 Unit-test expectations:
 
 * config parsing tests must assert new fields or validation rules in `src/config.rs`
-* sensor tests must assert remote/active TTY classification, tty deduplication, `sshd` tty parsing, and fallback behavior in `src/sensor.rs`
-* policy tests must assert pause behavior for interactive sessions in `src/policy.rs`
+* sensor tests must assert remote/active TTY classification, tty deduplication, `sshd` tty parsing, and fallback behavior in `src/adapters/procfs.rs`
+* policy tests must assert pause behavior for interactive sessions and parity with the pre-refactor decision table in `src/domain/reducer.rs`
 
 Manual-test expectations for install/runtime changes:
 

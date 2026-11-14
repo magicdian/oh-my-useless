@@ -25,8 +25,8 @@ There is also an imported shell reference under `Oracle-server-keep-alive-script
 |------|--------------------------|-------|
 | CLI | `src/main.rs`, `src/cli.rs` | Subcommands dispatch from `main.rs`; parsing lives in `cli.rs` |
 | Config | `src/config.rs` | Defaults, parsing, validation, install paths |
-| Daemon runtime | `src/daemon.rs`, `src/runtime.rs` | Signal handling, PID file, shared state |
-| Scheduling | `src/policy.rs`, `src/sensor.rs` | Pressure detection, interactive-session protection |
+| Daemon runtime | `src/daemon.rs`, `src/runtime/` | Composition root, signal handling, PID file, shared directives |
+| Scheduling | `src/domain/`, `src/adapters/` | Pure reducer, burst schedule, host observation |
 | Resource execution | `src/workers/*.rs` | CPU, memory, network workers |
 | Service install | `src/install.rs` | systemd first, init.d fallback |
 | Packaging | `scripts/package.sh` | Produces `tar.gz` for release delivery |

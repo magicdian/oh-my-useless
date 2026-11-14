@@ -11,8 +11,8 @@ The repository currently gets its type safety from Rust, not from TypeScript.
 Examples:
 
 * config sections are explicit Rust structs in `src/config.rs`,
-* policy outputs are explicit Rust structs in `src/policy.rs`,
-* sensor samples are explicit Rust structs in `src/sensor.rs`.
+* policy outputs are explicit Rust structs in `src/domain/state.rs`,
+* sensor samples are explicit Rust structs in `src/domain/signal.rs`.
 
 There is no frontend type system to document yet.
 

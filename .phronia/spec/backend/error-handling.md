@@ -52,7 +52,7 @@ Examples:
 * `src/config.rs::load_config`
 * `src/install.rs::install`
 * `src/daemon.rs::run`
-* `src/sensor.rs::sample`
+* `src/adapters/procfs.rs::sample`
 
 ### Rule: Convert user-input mistakes into explicit messages
 
