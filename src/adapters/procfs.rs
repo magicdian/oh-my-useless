@@ -334,7 +334,7 @@ fn parse_sshd_tty(line: &str) -> Option<String> {
         .split_whitespace()
         .next()
         .unwrap_or("")
-        .trim_end_matches(|ch: char| matches!(ch, ')' | ',' | ':' | ']'));
+        .trim_end_matches([')', ',', ':', ']']);
 
     if tty.starts_with("pts/") {
         Some(tty.to_string())

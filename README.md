@@ -133,6 +133,8 @@ Both files live on tmpfs and are bounded. journald still captures stderr.
 useless install      # install the binary and service, regenerate the unit
 useless status       # config, service state, daemon_state
 useless reload       # reload config; does NOT rewrite the systemd unit
+useless version      # print the installed version
+useless update       # install the newest GitHub release and restart the service
 useless uninstall    # remove the service/binary; keep /etc/useless
 useless uninstall --purge   # also remove /etc/useless
 ```
@@ -146,14 +148,69 @@ useless uninstall --purge   # also remove /etc/useless
 
 The normal session path is inotify-based on systemd hosts; `who`/`ps` is the fallback.
 
+## Updating
+
+```bash
+useless version                       # print the installed version
+useless update --check                # query GitHub Releases; no write, no root
+sudo useless update                   # install the newest release and restart the service
+sudo useless update --version 0.2.0   # install or roll back to a specific release
+sudo useless update --no-restart      # replace the binary, leave the service alone
+```
+
+`update` writes `/usr/local/bin/useless` (not the executable you invoked it from) and verifies the SHA-256 digest GitHub publishes for the release asset before extracting. It restarts the service only when systemd or init.d reports it active. A failed restart is reported separately: the new binary is already in place, so re-run `systemctl restart useless`.
+
+The updater matches the release asset against the compile-time target of the running binary. Use the archive for your architecture; if a release does not contain that target, `update` fails instead of installing a foreign architecture. `--version` accepts both `0.2.0` and `v0.2.0`.
+
+Set `USELESS_GITHUB_TOKEN` to raise the GitHub API rate limit. There is no background updater; updates are always explicit.
+
+## Releases and CI
+
+`.github/workflows/ci.yml` runs `cargo fmt --all --check`, `cargo clippy --all-targets --locked -- -D warnings`, and `cargo test --all-targets --locked` on Linux, plus a macOS compile/test job.
+
+`.github/workflows/release.yml` runs on `v*` tags, repeats those checks, verifies that the tag matches `CARGO_PKG_VERSION`, and publishes four archives:
+
+| Target | Notes |
+|---|---|
+| `x86_64-unknown-linux-gnu` | Needs a reasonably recent glibc (built on `ubuntu-latest`). |
+| `x86_64-unknown-linux-musl` | Static; recommended for older or mixed hosts. |
+| `aarch64-unknown-linux-gnu` | ARM64 servers and Raspberry Pi OS. |
+| `aarch64-unknown-linux-musl` | Static ARM64. |
+
+Each release contains `useless-<target>.tar.gz` and `useless-<target>.tar.gz.sha256`. The archive has `useless`, `README.md`, and `LICENSE` at its root; extract it and run `sudo ./useless install`.
+
+To cut a release, bump `version` in `Cargo.toml`, commit, then tag the same commit:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+Manual verification:
+
+```bash
+sha256sum -c useless-x86_64-unknown-linux-musl.tar.gz.sha256
+```
+
+Local packaging uses the same layout and naming:
+
+```bash
+./scripts/package.sh
+# or cross-build for a release target
+TARGET=aarch64-unknown-linux-musl ./scripts/package.sh
+```
+
+This produces `dist/useless-<host-target>.tar.gz` and its `.sha256`. The local script does not publish anything; tags drive the release workflow.
+
 ## Development
 
 ```bash
-cargo fmt
-cargo check
-cargo test
-# Linux-only reactor/PSI/session code, when developing on another host:
-cargo check --tests --target x86_64-unknown-linux-gnu
+cargo fmt --all --check
+cargo clippy --all-targets --locked -- -D warnings
+cargo test --all-targets --locked
+# Linux-only reactor/PSI/session code, when developing on another host
+# (needs Docker; `cross` provides the Linux C toolchain that ring requires):
+cross check --all-targets --target x86_64-unknown-linux-gnu
 ```
 
 The event-driven path is Linux-only. On non-Linux hosts the daemon compiles and the sampler/legacy session path runs, but it is not a supported production target.
@@ -161,7 +218,7 @@ The event-driven path is Linux-only. On non-Linux hosts the daemon compiles and 
 ## Packaging
 
 ```bash
-./scripts/package.sh 0.1.0
+./scripts/package.sh
 ```
 
-The archive contains `bin/useless` and `README.md`; after extraction run `./bin/useless install`.
+The archive contains `useless`, `README.md`, and `LICENSE` at its root; after extraction run `sudo ./useless install`. See [Releases and CI](#releases-and-ci) for the published target matrix.

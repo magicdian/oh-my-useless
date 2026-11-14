@@ -2,6 +2,19 @@
 name = "useless"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.88"
+description = "Idle-capacity daemon that yields to real work"
+repository = "https://github.com/magicdian/oh-my-useless"
+license = "Apache-2.0"
 
 [dependencies]
 libc = "0.2.191"
+self_update = { version = "1.3", default-features = false, features = [
+    "ureq",
+    "rustls",
+    "github",
+    "progress-bar",
+    "archive-tar",
+    "compression-tar-gz",
+    "checksums",
+] }

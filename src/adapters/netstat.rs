@@ -49,10 +49,7 @@ pub fn read_totals(root: &Path) -> std::io::Result<NetTotals> {
 
 fn read_u64(path: impl AsRef<Path>) -> std::io::Result<u64> {
     let value = fs::read_to_string(path)?;
-    value
-        .trim()
-        .parse::<u64>()
-        .map_err(|error| std::io::Error::other(error))
+    value.trim().parse::<u64>().map_err(std::io::Error::other)
 }
 
 /// The daemon's own network bytes, recorded as it downloads.

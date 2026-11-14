@@ -3,7 +3,7 @@ use std::fs;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::config::{
     Config, DEFAULT_CONFIG_DIR, INITD_SCRIPT_PATH, INSTALL_BIN_PATH, PID_FILE_PATH,
@@ -82,6 +82,31 @@ pub fn reload() -> AppResult<()> {
             }
         }
         ServiceManager::None => daemon::send_reload_from_pidfile(),
+    }
+}
+
+/// Restart the installed service when it is currently running.
+///
+/// Returns `false` when no service manager or no active service exists, which is
+/// not an error: the binary may have been updated before `install` was ever run.
+pub(crate) fn restart_service_if_active() -> AppResult<bool> {
+    match detect_service_manager() {
+        ServiceManager::Systemd => {
+            if !command_success("systemctl", ["is-active", "--quiet", SERVICE_NAME]) {
+                return Ok(false);
+            }
+            run_command("systemctl", ["restart", SERVICE_NAME])?;
+            Ok(true)
+        }
+        ServiceManager::Initd => {
+            let script = Path::new(INITD_SCRIPT_PATH);
+            if !script.exists() || !command_success(INITD_SCRIPT_PATH, ["status"]) {
+                return Ok(false);
+            }
+            run_command(INITD_SCRIPT_PATH, ["restart"])?;
+            Ok(true)
+        }
+        ServiceManager::None => Ok(false),
     }
 }
 
@@ -327,7 +352,7 @@ fn uninstall_initd() -> AppResult<()> {
     Ok(())
 }
 
-fn ensure_root() -> AppResult<()> {
+pub(crate) fn ensure_root() -> AppResult<()> {
     let euid = unsafe { geteuid() };
     if euid == 0 {
         Ok(())
@@ -357,6 +382,8 @@ fn run_command<const N: usize>(program: &str, args: [&str; N]) -> AppResult<()> 
 fn command_success<const N: usize>(program: &str, args: [&str; N]) -> bool {
     Command::new(program)
         .args(args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .map(|status| status.success())
         .unwrap_or(false)

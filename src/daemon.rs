@@ -131,10 +131,10 @@ pub fn run(config_path: &Path) -> AppResult<()> {
 
         let sample_due = next_sample;
         let mut wait_until = next_sample;
-        if let Some(monitor) = &session_monitor {
-            if let Some(due) = monitor.next_deadline() {
-                wait_until = due.min(wait_until);
-            }
+        if let Some(monitor) = &session_monitor
+            && let Some(due) = monitor.next_deadline()
+        {
+            wait_until = due.min(wait_until);
         }
 
         let mut batch = reactor.wait(wait_until)?;
@@ -161,10 +161,10 @@ pub fn run(config_path: &Path) -> AppResult<()> {
                 batch.push(legacy.sample());
             }
         }
-        if let Some(monitor) = &session_monitor {
-            if let Some(signal) = monitor.probe(now) {
-                batch.push(signal);
-            }
+        if let Some(monitor) = &session_monitor
+            && let Some(signal) = monitor.probe(now)
+        {
+            batch.push(signal);
         }
 
         if batch.is_empty() {
@@ -446,15 +446,15 @@ struct PidGuard {
 
 impl PidGuard {
     fn acquire(path: &'static Path) -> AppResult<Self> {
-        if let Ok(existing) = fs::read_to_string(path) {
-            if let Ok(pid) = existing.trim().parse::<u32>() {
-                let proc_path = format!("/proc/{pid}");
-                if Path::new(&proc_path).exists() {
-                    return Err(boxed_error(format!(
-                        "pid file {} already points to a running process",
-                        path.display()
-                    )));
-                }
+        if let Ok(existing) = fs::read_to_string(path)
+            && let Ok(pid) = existing.trim().parse::<u32>()
+        {
+            let proc_path = format!("/proc/{pid}");
+            if Path::new(&proc_path).exists() {
+                return Err(boxed_error(format!(
+                    "pid file {} already points to a running process",
+                    path.display()
+                )));
             }
         }
 

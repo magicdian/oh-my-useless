@@ -27,10 +27,10 @@ pub fn discover(spec: &[String], root: &Path, own: &Option<PathBuf>) -> ScopeSet
             missing.push(name.clone());
             continue;
         }
-        if let Some(own) = own {
-            if path == *own || own.starts_with(&path) {
-                continue;
-            }
+        if let Some(own) = own
+            && (path == *own || own.starts_with(&path))
+        {
+            continue;
         }
         watched.push(path);
     }

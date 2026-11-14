@@ -8,6 +8,7 @@ mod install;
 mod ports;
 mod runtime;
 mod sys;
+mod update;
 mod workers;
 
 use cli::{Command, parse_args, usage};
@@ -29,6 +30,19 @@ fn run() -> AppResult<()> {
         Command::Reload => install::reload(),
         Command::Status { config_path } => install::status(&config_path),
         Command::Daemon { config_path } => daemon::run(&config_path),
+        Command::Update {
+            check,
+            version,
+            no_restart,
+        } => update::run(update::UpdateOptions {
+            check,
+            version,
+            no_restart,
+        }),
+        Command::Version => {
+            println!("useless {}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
         Command::PrintDefaultConfig => {
             print!("{}", default_config_text());
             Ok(())
