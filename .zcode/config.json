@@ -1,0 +1,11 @@
+{
+  "plugins": {
+    "enabled": true,
+    "dirs": [
+      "/Users/magicdian/documents_local/MyProjects/oh-my-useless/.zcode/plugins/phronia"
+    ],
+    "enabledPlugins": {
+      "phronia@inline": true
+    }
+  }
+}
