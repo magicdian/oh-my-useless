@@ -119,3 +119,40 @@ Fixed the two CI blockers and published the first OMV-managed release, 2611.14.1
 ### Next Steps
 
 - Continue work on dev at 2611.14.1; the next main merge produces 2611.14.2.
+
+
+## Session 4: Fix PSI trigger busy loop
+<!-- phronia-session: v=2 fp=8b8579b545c712d3 -->
+
+**Date**: 2026-11-14
+**Task**: Fix PSI trigger busy loop
+**Branch**: `dev`
+
+### Summary
+
+Made PSI trigger watches one-shot with a cooldown re-arm, ignored zero readings, and fixed the unit start-limit placement.
+
+### Main Changes
+
+- Added EventSource::tick and Reactor::tick; the daemon loop re-arms closed PSI watches after pressure_window_ms.
+- PSI handle now closes the watch, ignores all-zero avg10 events, and schedules re-arms on errors instead of reopening immediately.
+- Moved StartLimitIntervalSec/StartLimitBurst to [Unit] and added placement tests.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e0ef704` | fix(psi): re-arm fired triggers and move start limits to [Unit] |
+| `5fc5d26` | chore(task): record PSI fix plan and spec delta |
+
+### Testing
+
+- [OK] Linux Rust 1.100 container: clippy -D warnings and 96 tests pass, including close/re-arm/zero-reading/error cases.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Release 2611.14.2, install on oracle-sg-tx-forward, verify no spin and correct resume, then exercise update --check and a pinned update.
