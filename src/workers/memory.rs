@@ -1,27 +1,28 @@
-use std::thread;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::runtime::SharedRuntime;
+use crate::runtime::Store;
 
-pub fn run(shared: SharedRuntime) {
+pub fn run(store: Arc<Store>) {
     let mut buffer = Vec::<u8>::new();
     let mut last_touch = Instant::now();
+    let mut seen = 0u64;
 
-    while !should_stop(&shared) {
-        let (allowed, max_percent, duty_percent) = {
-            let state = shared.read().expect("memory worker read lock");
-            (
-                state.policy.memory.allowed,
-                state.config.memory.max_percent,
-                state.policy.memory.duty_percent,
-            )
-        };
+    loop {
+        let state = store.wait_for_change(seen, Duration::from_secs(1));
+        seen = state.generation;
+        if state.shutdown {
+            break;
+        }
 
         let total_memory = total_memory_bytes().unwrap_or(0);
-        let target_size = if allowed && total_memory > 0 {
+        // Child 1 keeps the legacy ratio-based sizing to preserve behavior.
+        // Child 3 replaces this with the headroom-checked chunked ledger driven
+        // by `state.directives.budget`.
+        let target_size = if state.directives.memory.allowed && total_memory > 0 {
             total_memory
-                .saturating_mul(max_percent as u64)
-                .saturating_mul(duty_percent as u64)
+                .saturating_mul(state.config.memory.max_percent as u64)
+                .saturating_mul(state.directives.memory.duty_percent as u64)
                 / 10_000
         } else {
             0
@@ -33,9 +34,10 @@ pub fn run(shared: SharedRuntime) {
             touch_buffer(&mut buffer);
             last_touch = Instant::now();
         }
-
-        thread::sleep(Duration::from_secs(1));
     }
+
+    buffer.clear();
+    buffer.shrink_to(0);
 }
 
 fn resize_buffer(buffer: &mut Vec<u8>, target_size: usize) {
@@ -66,8 +68,4 @@ fn total_memory_bytes() -> Option<u64> {
     let line = content.lines().find(|line| line.starts_with("MemTotal:"))?;
     let kib = line.split_whitespace().nth(1)?.parse::<u64>().ok()?;
     Some(kib * 1024)
-}
-
-fn should_stop(shared: &SharedRuntime) -> bool {
-    shared.read().expect("memory worker read lock").shutdown
 }

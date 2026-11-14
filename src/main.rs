@@ -1,11 +1,12 @@
+mod adapters;
 mod cli;
 mod config;
 mod daemon;
+mod domain;
 mod error;
 mod install;
-mod policy;
+mod ports;
 mod runtime;
-mod sensor;
 mod workers;
 
 use cli::{Command, parse_args, usage};

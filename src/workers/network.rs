@@ -1,27 +1,22 @@
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::runtime::SharedRuntime;
+use crate::runtime::Store;
 
-pub fn run(shared: SharedRuntime) {
+pub fn run(store: Arc<Store>) {
     let mut cursor = 0usize;
 
-    while !should_stop(&shared) {
-        let (allowed, max_mbps, duty_percent, timeout_secs, targets, burst_seconds) = {
-            let state = shared.read().expect("network worker read lock");
-            let targets = state.config.network.targets.clone();
-            let burst = state.config.network.window.burst_secs_max.max(1);
-            (
-                state.policy.network.allowed,
-                state.config.network.max_mbps,
-                state.policy.network.duty_percent,
-                state.config.network.connect_timeout_secs,
-                targets,
-                burst,
-            )
-        };
+    while !store.is_shutdown() {
+        let state = store.snapshot();
+        let targets = state.config.network.targets.clone();
+        let allowed = state.directives.network.allowed;
+        let max_mbps = state.config.network.max_mbps;
+        let duty_percent = state.directives.network.duty_percent;
+        let timeout_secs = state.config.network.connect_timeout_secs;
+        let burst_seconds = state.config.network.window.burst_secs_max.max(1);
 
         if !allowed || targets.is_empty() || max_mbps == 0 {
             thread::sleep(Duration::from_secs(1));
@@ -36,7 +31,7 @@ pub fn run(shared: SharedRuntime) {
         }
 
         let _ = download_until_paused(
-            &shared,
+            &store,
             &target,
             max_bytes_per_sec,
             Duration::from_secs(burst_seconds),
@@ -47,7 +42,7 @@ pub fn run(shared: SharedRuntime) {
 }
 
 fn download_until_paused(
-    shared: &SharedRuntime,
+    store: &Store,
     target: &str,
     max_bytes_per_sec: u64,
     max_duration: Duration,
@@ -73,7 +68,7 @@ fn download_until_paused(
     let mut window_bytes = 0u64;
 
     loop {
-        if should_stop(shared) || !network_allowed(shared) || started.elapsed() >= max_duration {
+        if store.is_shutdown() || !store.network_allowed() || started.elapsed() >= max_duration {
             break;
         }
 
@@ -117,19 +112,6 @@ fn pick_target(targets: &[String], cursor: &mut usize) -> String {
     let index = (*cursor + jitter) % targets.len();
     *cursor = (*cursor + 1) % targets.len();
     targets[index].clone()
-}
-
-fn should_stop(shared: &SharedRuntime) -> bool {
-    shared.read().expect("network worker read lock").shutdown
-}
-
-fn network_allowed(shared: &SharedRuntime) -> bool {
-    shared
-        .read()
-        .expect("network worker read lock")
-        .policy
-        .network
-        .allowed
 }
 
 struct ParsedUrl {

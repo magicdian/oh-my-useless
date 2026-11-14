@@ -4,36 +4,34 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Instant;
 
+use crate::domain::signal::{SampleSnapshot, Session, SessionSet, Signal};
 use crate::error::AppResult;
+use crate::ports::Sampler;
 
-#[derive(Debug, Clone, Default)]
-pub struct SensorSample {
-    pub load_percent: u8,
-    pub mem_available_percent: u8,
-    pub interactive_session: bool,
-    pub tty_sessions: usize,
-    pub ssh_sessions: usize,
-    pub net_rx_bytes_per_sec: u64,
-    pub net_tx_bytes_per_sec: u64,
-}
-
-pub trait SensorBackend {
-    fn sample(&mut self, active_tty_idle_secs: u64) -> AppResult<SensorSample>;
-    fn backend_name(&self) -> &'static str;
-}
-
-pub struct ProcfsSensor {
+/// Procfs and shell based observation. This is the fallback sampler for every
+/// later event-driven source, and the only source in the MVP.
+pub struct ProcfsSampler {
     last_net: Option<(Instant, u64, u64)>,
 }
 
-impl ProcfsSensor {
+impl ProcfsSampler {
     pub fn new() -> Self {
         Self { last_net: None }
     }
+
+    pub fn backend_name(&self) -> &'static str {
+        "procfs"
+    }
 }
 
-impl SensorBackend for ProcfsSensor {
-    fn sample(&mut self, active_tty_idle_secs: u64) -> AppResult<SensorSample> {
+impl Default for ProcfsSampler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Sampler for ProcfsSampler {
+    fn sample(&mut self, active_tty_idle_secs: u64) -> AppResult<Vec<Signal>> {
         let cores = std::thread::available_parallelism()
             .map(|value| value.get())
             .unwrap_or(1)
@@ -42,28 +40,33 @@ impl SensorBackend for ProcfsSensor {
         let load_percent = ((load_one / cores as f64) * 100.0)
             .round()
             .clamp(0.0, 100.0) as u8;
-        let mem_available_percent = read_mem_available_percent()?;
-        let (tty_sessions, ssh_sessions) = read_interactive_counts(active_tty_idle_secs);
-        let interactive_session = tty_sessions > 0 || ssh_sessions > 0;
+
+        let meminfo = read_meminfo()?;
+        let mem_available_percent = percent(meminfo.available_kib, meminfo.total_kib);
+        let swap_used_bytes = meminfo
+            .swap_total_kib
+            .saturating_sub(meminfo.swap_free_kib)
+            .saturating_mul(1024);
+
+        let sessions = read_sessions(active_tty_idle_secs);
         let (net_rx_bytes_per_sec, net_tx_bytes_per_sec) = self.read_network_rates()?;
 
-        Ok(SensorSample {
-            load_percent,
-            mem_available_percent,
-            interactive_session,
-            tty_sessions,
-            ssh_sessions,
-            net_rx_bytes_per_sec,
-            net_tx_bytes_per_sec,
-        })
-    }
-
-    fn backend_name(&self) -> &'static str {
-        "procfs"
+        Ok(vec![
+            Signal::Sample(SampleSnapshot {
+                load_percent,
+                mem_available_percent,
+                mem_available_bytes: meminfo.available_kib.saturating_mul(1024),
+                mem_total_bytes: meminfo.total_kib.saturating_mul(1024),
+                swap_used_bytes,
+                net_rx_bytes_per_sec,
+                net_tx_bytes_per_sec,
+            }),
+            Signal::Sessions(sessions),
+        ])
     }
 }
 
-impl ProcfsSensor {
+impl ProcfsSampler {
     fn read_network_rates(&mut self) -> AppResult<(u64, u64)> {
         let now = Instant::now();
         let (rx_total, tx_total) = read_network_totals()?;
@@ -83,6 +86,48 @@ impl ProcfsSensor {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct MemInfo {
+    total_kib: u64,
+    available_kib: u64,
+    swap_total_kib: u64,
+    swap_free_kib: u64,
+}
+
+fn read_meminfo() -> AppResult<MemInfo> {
+    let content = fs::read_to_string("/proc/meminfo")?;
+    let mut info = MemInfo::default();
+
+    for line in content.lines() {
+        if let Some(value) = parse_meminfo_value(line, "MemTotal:") {
+            info.total_kib = value;
+        } else if let Some(value) = parse_meminfo_value(line, "MemAvailable:") {
+            info.available_kib = value;
+        } else if let Some(value) = parse_meminfo_value(line, "SwapTotal:") {
+            info.swap_total_kib = value;
+        } else if let Some(value) = parse_meminfo_value(line, "SwapFree:") {
+            info.swap_free_kib = value;
+        }
+    }
+
+    Ok(info)
+}
+
+fn parse_meminfo_value(line: &str, key: &str) -> Option<u64> {
+    let value = line.strip_prefix(key)?;
+    value.split_whitespace().next().unwrap_or("0").parse().ok()
+}
+
+fn percent(available_kib: u64, total_kib: u64) -> u8 {
+    if total_kib == 0 {
+        return 0;
+    }
+
+    ((available_kib as f64 / total_kib as f64) * 100.0)
+        .round()
+        .clamp(0.0, 100.0) as u8
+}
+
 fn read_load_one() -> AppResult<f64> {
     let content = fs::read_to_string("/proc/loadavg")?;
     let value = content
@@ -92,39 +137,7 @@ fn read_load_one() -> AppResult<f64> {
     Ok(value.parse::<f64>()?)
 }
 
-fn read_mem_available_percent() -> AppResult<u8> {
-    let content = fs::read_to_string("/proc/meminfo")?;
-    let mut total = 0u64;
-    let mut available = 0u64;
-
-    for line in content.lines() {
-        if let Some(value) = line.strip_prefix("MemTotal:") {
-            total = value
-                .split_whitespace()
-                .next()
-                .unwrap_or("0")
-                .parse()
-                .unwrap_or(0);
-        } else if let Some(value) = line.strip_prefix("MemAvailable:") {
-            available = value
-                .split_whitespace()
-                .next()
-                .unwrap_or("0")
-                .parse()
-                .unwrap_or(0);
-        }
-    }
-
-    if total == 0 {
-        return Ok(0);
-    }
-
-    Ok(((available as f64 / total as f64) * 100.0)
-        .round()
-        .clamp(0.0, 100.0) as u8)
-}
-
-fn read_interactive_counts(active_tty_idle_secs: u64) -> (usize, usize) {
+fn read_sessions(active_tty_idle_secs: u64) -> SessionSet {
     let active_sessions = Command::new("who")
         .args(["-u", "--ips"])
         .output()
@@ -141,7 +154,41 @@ fn read_interactive_counts(active_tty_idle_secs: u64) -> (usize, usize) {
         .map(|stdout| parse_sshd_ttys(&stdout))
         .unwrap_or_default();
 
-    counts_from_active_sessions(&active_sessions, &ssh_ttys)
+    build_session_set(&active_sessions, &ssh_ttys)
+}
+
+fn build_session_set(
+    sessions_by_tty: &BTreeMap<String, bool>,
+    ssh_ttys: &BTreeSet<String>,
+) -> SessionSet {
+    let correlated_ssh_sessions = sessions_by_tty
+        .iter()
+        .filter(|(tty, remote)| **remote && ssh_ttys.contains(*tty))
+        .count();
+    let use_correlation = !ssh_ttys.is_empty() && correlated_ssh_sessions > 0;
+
+    let sessions = sessions_by_tty
+        .iter()
+        .map(|(tty, remote)| Session {
+            tty: tty.clone(),
+            remote: if use_correlation {
+                *remote && ssh_ttys.contains(tty)
+            } else {
+                *remote
+            },
+        })
+        .collect();
+
+    SessionSet::new(sessions)
+}
+
+#[cfg(test)]
+fn counts_from_active_sessions(
+    sessions_by_tty: &BTreeMap<String, bool>,
+    ssh_ttys: &BTreeSet<String>,
+) -> (usize, usize) {
+    let sessions = build_session_set(sessions_by_tty, ssh_ttys);
+    (sessions.tty_count(), sessions.ssh_count())
 }
 
 fn read_network_totals() -> AppResult<(u64, u64)> {
@@ -196,31 +243,6 @@ fn parse_who_users(stdout: &str, active_tty_idle_secs: u64) -> BTreeMap<String, 
     }
 
     sessions_by_tty
-}
-
-fn counts_from_active_sessions(
-    sessions_by_tty: &BTreeMap<String, bool>,
-    ssh_ttys: &BTreeSet<String>,
-) -> (usize, usize) {
-    let tty_sessions = sessions_by_tty.len();
-    let fallback_ssh_sessions = sessions_by_tty.values().filter(|remote| **remote).count();
-
-    let ssh_sessions = if ssh_ttys.is_empty() {
-        fallback_ssh_sessions
-    } else {
-        let correlated_ssh_sessions = sessions_by_tty
-            .iter()
-            .filter(|(tty, remote)| **remote && ssh_ttys.contains(*tty))
-            .count();
-
-        if correlated_ssh_sessions > 0 {
-            correlated_ssh_sessions
-        } else {
-            fallback_ssh_sessions
-        }
-    };
-
-    (tty_sessions, ssh_sessions)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -360,7 +382,10 @@ fn parse_sshd_tty(line: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{counts_from_active_sessions, parse_idle_token, parse_sshd_ttys, parse_who_users};
+    use super::{
+        build_session_set, counts_from_active_sessions, parse_idle_token, parse_sshd_ttys,
+        parse_who_users,
+    };
 
     #[test]
     fn counts_only_recent_remote_pts_sessions() {
@@ -452,5 +477,18 @@ not-sshd: ignored\n",
         assert_eq!(parse_idle_token("1:02:03"), Some(3723));
         assert_eq!(parse_idle_token("2.00s"), Some(2));
         assert_eq!(parse_idle_token("05:10m"), Some(310));
+    }
+
+    #[test]
+    fn session_set_marks_remote_sessions_when_correlated() {
+        let sessions = parse_who_users(
+            "root pts/0 2026-04-15 16:16 . 1 (1.2.3.4)\n\
+             root pts/1 2026-04-15 16:16 . 2 (1.2.3.4)\n",
+            300,
+        );
+        let ssh_ttys = parse_sshd_ttys("sshd: root@pts/0\n");
+        let set = build_session_set(&sessions, &ssh_ttys);
+        assert_eq!(set.tty_count(), 2);
+        assert_eq!(set.ssh_count(), 1);
     }
 }

@@ -4,9 +4,9 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::runtime::SharedRuntime;
+use crate::runtime::Store;
 
-pub fn run(shared: SharedRuntime) {
+pub fn run(store: Arc<Store>) {
     let cores = std::thread::available_parallelism()
         .map(|value| value.get())
         .unwrap_or(1)
@@ -31,25 +31,25 @@ pub fn run(shared: SharedRuntime) {
         );
     }
 
-    while !should_stop(&shared) {
-        let (allowed, max_percent, duty_percent) = {
-            let state = shared.read().expect("cpu worker read lock");
-            (
-                state.policy.cpu.allowed,
-                state.config.cpu.max_percent,
-                state.policy.cpu.duty_percent,
-            )
-        };
+    let mut seen = 0u64;
+    loop {
+        let state = store.wait_for_change(seen, Duration::from_secs(1));
+        seen = state.generation;
+        if state.shutdown {
+            break;
+        }
 
-        let target_units = if allowed {
-            ((cores as u64) * (max_percent as u64) * (duty_percent as u64) * 10 / 100)
+        let target_units = if state.directives.cpu.allowed {
+            ((cores as u64)
+                * (state.config.cpu.max_percent as u64)
+                * (state.directives.cpu.duty_percent as u64)
+                * 10
+                / 100)
                 .min((cores as u64) * 1000) as u32
         } else {
             0
         };
         apply_target_units(&thread_duties, target_units);
-
-        thread::sleep(Duration::from_secs(1));
     }
 
     stop.store(true, Ordering::Relaxed);
@@ -88,8 +88,4 @@ fn apply_target_units(duties: &[AtomicU32], mut target_units: u32) {
         duty.store(assigned, Ordering::Relaxed);
         target_units = target_units.saturating_sub(assigned);
     }
-}
-
-fn should_stop(shared: &SharedRuntime) -> bool {
-    shared.read().expect("cpu worker read lock").shutdown
 }
