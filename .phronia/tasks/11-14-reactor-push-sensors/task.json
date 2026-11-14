@@ -33,6 +33,15 @@
       "last_error": null,
       "log_ref": ".phronia/.runtime/integration-logs/reactor-push-sensors-2026-11-14T08-29-51-032Z.log",
       "updated_at": "2026-11-14T08:29:51.655Z"
+    },
+    "spec_sync": {
+      "status": "synced",
+      "commit": "1ef1b620cf164f917a9f6f9db89f43cffba3d0ad",
+      "synced_at": "2026-11-14T08:30:23.707Z",
+      "refs": [
+        ".phronia/tasks/11-14-reactor-push-sensors"
+      ],
+      "mode": "agent"
     }
   }
 }
