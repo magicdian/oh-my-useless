@@ -33,6 +33,15 @@
       "last_error": null,
       "log_ref": ".phronia/.runtime/integration-logs/network-jit-and-docs-2026-11-14T09-21-09-168Z.log",
       "updated_at": "2026-11-14T09:21:09.831Z"
+    },
+    "spec_sync": {
+      "status": "synced",
+      "commit": "96417071da5f4226038eb21dd118f05fc2cf8e7b",
+      "synced_at": "2026-11-14T09:21:38.428Z",
+      "refs": [
+        ".phronia/tasks/11-14-network-jit-and-docs"
+      ],
+      "mode": "agent"
     }
   }
 }
