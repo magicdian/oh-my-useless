@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 2
+- **Total Sessions**: 3
 - **Last Active**: 2026-11-14
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~83 | Active |
+| `journal-1.md` | ~121 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 3 | 2026-11-14 | Unblock and ship the OMV release pipeline | `38e3d29`, `2a5c7d8`, `fe41833` | `dev` |
 | 2 | 2026-11-14 | OMV pipeline versioning | `05413ec`, `e26b0cd` | `dev` |
 | 1 | 2026-11-14 | Self-update and release pipeline | `7a53383`, `cb38865` | `dev` |
 <!-- @@@/auto:session-history -->

@@ -81,3 +81,41 @@ Adopted OMV as the single version truth in pipeline mode and moved release assig
 ### Next Steps
 
 - Push dev, merge into main, and watch the Release workflow produce 2611.14.1.
+
+
+## Session 3: Unblock and ship the OMV release pipeline
+<!-- phronia-session: v=2 fp=3cfd3df44ff3cbbb -->
+
+**Date**: 2026-11-14
+**Task**: Unblock and ship the OMV release pipeline
+**Branch**: `dev`
+
+### Summary
+
+Fixed the two CI blockers and published the first OMV-managed release, 2611.14.1.
+
+### Main Changes
+
+- Satisfied Rust 1.100 clippy lints in the Linux-only PSI/session/reactor code and replaced the fake PSI epoll descriptor (/dev/null returns EPERM) with eventfd.
+- The Release workflow bumped 2611.14.0 to 2611.14.1, committed chore(release), tagged it, and uploaded four Linux archives with sha256 sums.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `38e3d29` | fix(ci): satisfy clippy 1.100 lints on Linux paths |
+| `2a5c7d8` | fix(test): use eventfd for fake PSI watches |
+| `fe41833` | chore(release): 2611.14.1 |
+
+### Testing
+
+- [OK] Linux Rust 1.100 container: clippy -D warnings and all 94 tests pass.
+- [OK] dev CI green; Release run green; useless update --check reports 2611.14.0 -> 2611.14.1.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Continue work on dev at 2611.14.1; the next main merge produces 2611.14.2.
