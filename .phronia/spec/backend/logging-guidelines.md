@@ -54,10 +54,12 @@ Keep log messages short and centered on actionable state.
 
 Two bounded operational files complement stderr:
 
-* `/run/useless/state` is a line-based `key=value` snapshot written on every mode transition and at most once per 30 s. Keys: `mode`, `reasons`, `budget_mb`, `available_mb`, `capabilities`, `last_transition`, `summary`. It is deliberately not JSON so `status` needs no parser.
+* `/run/useless/state` is a line-based `key=value` snapshot written on every mode transition and at most once per 30 s. Keys: `mode`, `reasons`, `scope`, `budget_mb`, `reserve_mb`, `available_mb`, `capabilities`, `last_transition`, `summary`. It is deliberately not JSON so `status` needs no parser.
 * `/run/useless/journal.jsonl` is transition-only JSON Lines, capped at ~256 KiB by keeping the most recent `capacity/2` entries. Fields: `ts_ms`, `signal`, `from`, `to`, `reasons`, `budget_mb`, `available_mb`.
 
 A journal write or trim failure logs once, disables the file sink for the process lifetime, and never crashes the daemon. `/run` is tmpfs, so both files are intentionally non-durable; journald already captures stderr.
+
+The network gate logs each skipped burst with its ingress/egress estimate and logs a counter-read failure once; the probe runs in the worker thread, not the reactor.
 
 ---
 

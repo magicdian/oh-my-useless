@@ -36,6 +36,7 @@ src/
 ├── adapters/
 │   ├── mod.rs
 │   ├── cgroups.rs  # cgroup slice discovery and own-cgroup exclusion
+│   ├── netstat.rs  # interface counters, traffic ledger, external-traffic estimator
 │   ├── psi.rs      # PSI trigger watches for host and cgroup scopes
 │   ├── sessions.rs # inotify session sources, tty idle probe, legacy sampler
 │   ├── signals.rs  # signalfd source

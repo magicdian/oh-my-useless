@@ -102,6 +102,8 @@ Network section:
 
 * `[network].enabled`
 * `[network].max_mbps`
+* `[network].external_traffic_kbps`
+* `[network].probe_window_ms`
 * `[network].connect_timeout_secs`
 * `[network].burst_secs_min`
 * `[network].burst_secs_max`
@@ -135,6 +137,9 @@ Sensor section:
 * The memory worker is a chunked `mmap` ledger: it grows one `chunk_mb` at a time only when a fresh `MemAvailable − reserve >= current + chunk` check passes, shrinks with `MADV_DONTNEED` + `munmap`, and releases everything when the directive is not allowed.
 * The daemon watches each configured cgroup slice's `{cpu,memory,io}.pressure`, excludes its own cgroup and ancestors, and refreshes the slice set every 60 s and on `SIGHUP`.
 * Per-cgroup pressure writes the slice name to `scope` in the state file and appends `scope=<slice>` to the summary.
+* Before each network burst, the worker samples interface counters twice over `probe_window_ms`, subtracts its own bytes, and computes ingress/egress kbit/s.
+* If either direction exceeds `external_traffic_kbps`, the burst is skipped and logged; the next schedule retries. No mode transition is involved.
+* A counter read failure leaves the gate open, logs once, and `max_mbps` still caps the burst.
 * Worker scheduling uses randomized burst/rest windows from the relevant module section.
 
 #### Install behavior
@@ -170,6 +175,7 @@ Sensor section:
 | `pressure_enter_ms > pressure_window_ms` | Config validation must fail |
 | `reserve_percent >= 100` | Config validation must fail |
 | `[memory].chunk_mb = 0` | Config validation must fail |
+| `[network].probe_window_ms` outside 1..=2000 | Config validation must fail |
 
 ---
 
@@ -245,6 +251,7 @@ Unit-test expectations:
 * memory budget/ledger tests must assert the reserve/headroom/absolute caps and that growth stops when fresh headroom is insufficient (`src/domain/budget.rs`, `src/workers/memory.rs`)
 * unit-generation tests must assert the exact `MemoryHigh`/`MemoryMax` and `OOMScoreAdjust=1000` values (`src/install.rs`); cgroup discovery tests live in `src/adapters/cgroups.rs`
 * session tests must cover logind directory scanning, tty dedup, variable-length inotify event parsing, probe filtering/re-emission, atime handling, and watch re-add (`src/adapters/sessions.rs`); Linux-only cases are `cfg(target_os = "linux")`
+* network tests must cover the counter reader, estimator subtraction/own-equals-total/wrap, the pure `should_start_burst` gate, and the new config keys (`src/adapters/netstat.rs`, `src/domain/network.rs`, `src/config.rs`)
 * Linux-only tests are `cfg(target_os = "linux")`; run `cargo check --tests --target x86_64-unknown-linux-gnu` when developing on another host
 
 Manual-test expectations for install/runtime changes:
