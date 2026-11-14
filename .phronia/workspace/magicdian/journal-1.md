@@ -216,3 +216,29 @@ Added a just-in-time external-traffic estimator ahead of each network burst, a p
 ### Status
 
 [OK] **Completed**
+
+
+## Session 8: Event-driven sensor architecture: parent integration
+<!-- phronia-session: v=2 fp=38769b63d52ebfea -->
+
+**Date**: 2026-11-14
+**Task**: Event-driven sensor architecture: parent integration
+**Branch**: `dev`
+
+### Summary
+
+Completed the five-child refactor: pure domain and ports, epoll reactor with PSI, headroom memory ledger with cgroup scopes and systemd self-containment, inotify session detection, and a network JIT gate with refreshed documentation.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7a35773` | refactor(domain): extract pure policy domain, ports, and directive store |
+| `15003cd` | feat(sensor): add epoll reactor and PSI-driven suspension |
+| `0d0cdd8` | feat(memory): add headroom budget, chunked ledger, and cgroup scopes |
+| `8a5afaf` | feat(sessions): detect login and logout through inotify |
+| `c941cc1` | feat(network): add just-in-time external traffic gate and refresh docs |
+
+### Status
+
+[OK] **Completed**
