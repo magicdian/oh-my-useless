@@ -33,6 +33,15 @@
       "last_error": null,
       "log_ref": ".phronia/.runtime/integration-logs/event-driven-sessions-2026-11-14T09-08-29-226Z.log",
       "updated_at": "2026-11-14T09:08:29.849Z"
+    },
+    "spec_sync": {
+      "status": "synced",
+      "commit": "e28833690d9ab7a854e428ba2f23ae4655050c97",
+      "synced_at": "2026-11-14T09:08:59.892Z",
+      "refs": [
+        ".phronia/tasks/11-14-event-driven-sessions"
+      ],
+      "mode": "agent"
     }
   }
 }
