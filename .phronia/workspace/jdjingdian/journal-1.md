@@ -156,3 +156,39 @@ Made PSI trigger watches one-shot with a cooldown re-arm, ignored zero readings,
 ### Next Steps
 
 - Release 2611.14.2, install on oracle-sg-tx-forward, verify no spin and correct resume, then exercise update --check and a pinned update.
+
+
+## Session 5: Fix self-update asset selection
+<!-- phronia-session: v=2 fp=e96d859f56498adf -->
+
+**Date**: 2026-11-14
+**Task**: Fix self-update asset selection
+**Branch**: `dev`
+
+### Summary
+
+Restricted self-update downloads to the tar.gz release asset so the .sha256 sidecar cannot be installed as the binary.
+
+### Main Changes
+
+- Set asset_identifier('.tar.gz') on the updater builder and asserted it in the config test.
+- Documented the substring-matching failure mode and the required archive-only contract.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `550ac91` | fix(update): select only the tar.gz release asset |
+| `1098717` | chore(task): record self-update asset fix and spec delta |
+
+### Testing
+
+- [OK] cargo fmt/clippy/test pass; Linux Rust 1.100 container: clippy and 96 tests pass.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Release 2611.14.3 and run an unpinned useless update from 2611.14.2 on oracle-sg-tx-forward.
