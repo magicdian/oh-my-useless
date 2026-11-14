@@ -53,7 +53,7 @@ In `workers/network.rs`, before selecting a target:
 ```text
 if estimates.ingress_kbps > cfg.external_traffic_kbps
    || estimates.egress_kbps  > cfg.external_traffic_kbps {
-       publish ExternalTraffic;
+       log the skip;
        sleep 1 s;            // bounded backoff, worker thread only
        continue;
 }

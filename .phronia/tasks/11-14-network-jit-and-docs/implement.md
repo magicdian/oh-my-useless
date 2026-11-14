@@ -2,15 +2,15 @@
 
 ## Checklist
 
-1. [ ] Move interface counter reading from `sensor.rs` to `adapters/netstat.rs`; add `NetOps` for fakes.
+1. [ ] Add `adapters/netstat.rs` with `NetOps`, interface counter reading, `TrafficLedger`, and the estimator.
 2. [ ] Add `TrafficLedger`; update the network worker to record bytes read and written.
 3. [ ] Implement `ExternalTrafficEstimator` with saturating math and the kbps conversion.
-4. [ ] Add `domain::should_start_burst(estimate, threshold)` and wire the gate into the worker.
+4. [ ] Add `domain::should_start_burst(ingress_kbps, egress_kbps, threshold)` and wire the gate into the worker.
 5. [ ] Add `external_traffic_kbps` and `probe_window_ms` to config, defaults, validation, and `default_config_text`.
 6. [ ] Add estimator, gate, counter-reader, and config round-trip tests.
-7. [ ] Rewrite README sections per the documentation contract; update `daemon-install-contracts.md`, `directory-structure.md`, and `logging-guidelines.md`.
+7. [ ] Rewrite README per the documentation contract; record the spec changes in `spec-delta.md`; do not edit `.phronia/spec/**`.
 8. [ ] Verify `print-default-config` parses with the new keys.
-9. [ ] Run the manual saturation test.
+9. [ ] Run the manual saturation test (Linux VM; not available on the development host).
 
 ## Validation
 
