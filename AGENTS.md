@@ -1,22 +1,21 @@
-<!-- TRELLIS:START -->
-# Trellis Instructions
+<!-- PHRONIA:START -->
+# Phronia Instructions
 
 These instructions are for AI assistants working in this project.
 
-Use the `/trellis:start` command when starting a new session to:
-- Initialize your developer identity
-- Understand current project context
-- Read relevant guidelines
+This project is managed by Phronia. The working knowledge you need lives under `.phronia/`:
 
-Use `@/.trellis/` to learn:
-- Development workflow (`workflow.md`)
-- Project structure guidelines (`spec/`)
-- Developer workspace (`workspace/`)
+- `.phronia/workflow.md` — development phases, when to create tasks, skill routing
+- `.phronia/spec/` — package- and layer-scoped coding guidelines (read before writing code in a given layer)
+- `.phronia/workspace/` — per-developer journals and session traces
+- `.phronia/tasks/` — active and archived tasks (PRDs, research, jsonl context)
 
-If you're using Codex, project-scoped helpers may also live in:
-- `.agents/skills/` for reusable Trellis skills
-- `.codex/agents/` for optional custom subagents
+If a Phronia command is available on your platform (e.g. `/phronia:finish-work`, `/phronia:continue`), prefer it over manual steps. Not every platform exposes every command.
 
-Keep this managed block so 'trellis update' can refresh the instructions.
+If you're using Codex or another agent-capable tool, additional project-scoped helpers may live in:
+- `.agents/skills/` — reusable Phronia skills
+- `.codex/agents/` — optional custom subagents
 
-<!-- TRELLIS:END -->
+Managed by Phronia. Edits outside this block are preserved; edits inside may be overwritten by a future `phronia update`.
+
+<!-- PHRONIA:END -->

@@ -1,13 +1,24 @@
 {
   "hooks": {
-    "SessionStart": [
+    "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .codex/hooks/session-start.py",
-            "timeout": 15,
-            "statusMessage": "Loading Trellis context..."
+            "command": "python3 -X utf8 .codex/hooks/phronia-hook.py --event user-prompt --platform codex",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "^(?:phronia-implement|phronia-check|phronia-research)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -X utf8 .codex/hooks/phronia-hook.py --event subagent-spawn --platform codex",
+            "timeout": 15
           }
         ]
       }
