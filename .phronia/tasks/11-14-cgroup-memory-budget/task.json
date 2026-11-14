@@ -33,6 +33,15 @@
       "last_error": null,
       "log_ref": ".phronia/.runtime/integration-logs/cgroup-memory-budget-2026-11-14T08-48-56-850Z.log",
       "updated_at": "2026-11-14T08:48:57.460Z"
+    },
+    "spec_sync": {
+      "status": "synced",
+      "commit": "25ee41b14bda932a8bf903f13db67500cfcb742e",
+      "synced_at": "2026-11-14T08:49:37.392Z",
+      "refs": [
+        ".phronia/tasks/11-14-cgroup-memory-budget"
+      ],
+      "mode": "agent"
     }
   }
 }
