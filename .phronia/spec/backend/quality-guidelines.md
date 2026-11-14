@@ -21,6 +21,12 @@ cargo check
 cargo test
 ```
 
+When the change touches Linux-only code and development happens on another host, also run:
+
+```bash
+cargo check --tests --target x86_64-unknown-linux-gnu
+```
+
 ---
 
 ## Required Patterns
@@ -58,7 +64,7 @@ If you add deterministic parsing, threshold, or scheduling logic, add or extend 
 
 ### Do not add dependencies for convenience only
 
-The crate currently has no external dependencies. Before adding one, check whether the need is real or whether std already covers it.
+The crate has one dependency, `libc`, used for ABI-correct epoll/timerfd/signalfd bindings. Before adding another, check whether the need is real or whether std already covers it, and record the ABI-level justification.
 
 ### Do not bypass root checks in install flows
 

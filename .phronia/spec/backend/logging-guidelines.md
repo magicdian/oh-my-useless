@@ -50,6 +50,15 @@ Log events that help an operator understand process state transitions:
 
 Keep log messages short and centered on actionable state.
 
+### Daemon state and transition journal
+
+Two bounded operational files complement stderr:
+
+* `/run/useless/state` is a line-based `key=value` snapshot written on every mode transition and at most once per 30 s. Keys: `mode`, `reasons`, `budget_mb`, `available_mb`, `capabilities`, `last_transition`, `summary`. It is deliberately not JSON so `status` needs no parser.
+* `/run/useless/journal.jsonl` is transition-only JSON Lines, capped at ~256 KiB by keeping the most recent `capacity/2` entries. Fields: `ts_ms`, `signal`, `from`, `to`, `reasons`, `budget_mb`, `available_mb`.
+
+A journal write or trim failure logs once, disables the file sink for the process lifetime, and never crashes the daemon. `/run` is tmpfs, so both files are intentionally non-durable; journald already captures stderr.
+
 ---
 
 ## What Not To Log

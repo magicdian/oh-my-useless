@@ -71,6 +71,10 @@ Global fields currently supported:
 * `pause_load_percent`
 * `caution_mem_available_percent`
 * `pause_mem_available_percent`
+* `pressure_enter_ms`
+* `pressure_window_ms`
+* `resume_quiet_secs`
+* `resume_ramp_secs`
 
 CPU section:
 
@@ -113,6 +117,12 @@ Network section:
 * SSH counts prefer deduplicated `pts/*` terminals that can be confirmed by `ps` output containing `sshd: user@pts/N`.
 * If `ps` cannot confirm SSH terminals, the detector falls back to remote `pts/*` classification from `who`.
 * Once interaction is detected, the daemon remains in pause mode for `interactive_grace_secs` after the last active sample.
+* PSI triggers on `/proc/pressure/{cpu,memory,io}` drive suspension. A pressure event suspends immediately, and the host stays suspended for `resume_quiet_secs` after the last event before resuming.
+* After a suspension, duty ramps through 25%, 50%, and 100% across `resume_ramp_secs`.
+* When PSI is unavailable or trigger registration fails, the procfs sampler remains the fallback and `status` reports `psi=unavailable`.
+* `SIGHUP` reloads the config and rebuilds the reactor; `SIGINT`/`SIGTERM` shut down. On Linux these are read through `signalfd` after `SIG_BLOCK`.
+* `useless status` appends a `daemon_state:` block read from `/run/useless/state`: `mode`, `reasons`, `budget_mb`, `available_mb`, `capabilities`, `last_transition`, and `summary`.
+* State and journal paths are `/run/useless/state` (line-based `key=value`) and `/run/useless/journal.jsonl` (transition-only JSON Lines).
 * Worker scheduling uses randomized burst/rest windows from the relevant module section.
 
 #### Install behavior
@@ -140,6 +150,8 @@ Network section:
 | Missing systemd and missing init.d | `install` must fail with supported-service-manager error |
 | Duplicate active `who` rows for the same `pts/N` | Detector must count one active terminal, not multiple |
 | `ps` misses SSH tty correlation on a host | Detector must still fall back to remote `pts/*` counting instead of reporting zero SSH sessions |
+| `pressure_window_ms = 0` | Config validation must fail |
+| `pressure_enter_ms > pressure_window_ms` | Config validation must fail |
 
 ---
 
@@ -210,7 +222,9 @@ Unit-test expectations:
 
 * config parsing tests must assert new fields or validation rules in `src/config.rs`
 * sensor tests must assert remote/active TTY classification, tty deduplication, `sshd` tty parsing, and fallback behavior in `src/adapters/procfs.rs`
-* policy tests must assert pause behavior for interactive sessions and parity with the pre-refactor decision table in `src/domain/reducer.rs`
+* policy tests must assert pause behavior for interactive sessions, pressure quiet-window/slow-start behavior, and parity with the pre-refactor decision table in `src/domain/reducer.rs`
+* PSI parsing and adapter tests live in `src/adapters/psi.rs`; reactor dispatch/timer tests in `src/runtime/reactor.rs`; journal/state tests in `src/runtime/journal.rs`
+* Linux-only tests are `cfg(target_os = "linux")`; run `cargo check --tests --target x86_64-unknown-linux-gnu` when developing on another host
 
 Manual-test expectations for install/runtime changes:
 
