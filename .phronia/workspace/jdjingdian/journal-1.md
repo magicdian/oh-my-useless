@@ -43,3 +43,41 @@ Added a root-safe self-updater and a tag-driven GitHub Actions release pipeline,
 ### Next Steps
 
 - Push dev or tag v0.1.0 to exercise the release workflow, then verify update end to end on a test host.
+
+
+## Session 2: OMV pipeline versioning
+<!-- phronia-session: v=2 fp=781e8b13c1e4271d -->
+
+**Date**: 2026-11-14
+**Task**: OMV pipeline versioning
+**Branch**: `dev`
+
+### Summary
+
+Adopted OMV as the single version truth in pipeline mode and moved release assignment into GitHub Actions.
+
+### Main Changes
+
+- Bootstrapped .omv/ at 2611.14.0 (pipeline mode) and synced Cargo.toml, Cargo.lock, and src/generated/version.rs; first pipeline release is 2611.14.1.
+- Added a CI OMV drift job and PR version-truth guard; replaced the tag-triggered release with a main/manual bump→commit→tag→upload workflow.
+- Normalized self-update version pinning to bare OMV tags and updated README/spec.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `05413ec` | feat(release): adopt OMV pipeline versioning |
+| `e26b0cd` | chore(task): record OMV pipeline plan and spec delta |
+
+### Testing
+
+- [OK] omv sync --check exits 0; dry-run bump plans 2611.14.1; unauthorized bump/sync are denied.
+- [OK] cargo fmt/clippy/test pass (77 tests); package.sh, workflow YAML, and a full release transaction simulation succeed.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Push dev, merge into main, and watch the Release workflow produce 2611.14.1.
