@@ -22,7 +22,7 @@ src/
 ├── daemon.rs       # composition root: sampler -> reducer -> store -> workers
 ├── install.rs      # install, uninstall, reload, status, service manager glue
 ├── update.rs       # self-update policy: CLI options, root gate, GitHub Releases, restart decision
-├── ports.rs        # Sampler, Clock, StatePublisher, JournalSink, EventSource traits
+├── ports.rs        # Sampler, Clock, StatePublisher, JournalSink, EventSource traits (tick re-arm hook)
 ├── domain/
 │   ├── mod.rs      # public domain contract
 │   ├── signal.rs   # Signal, SampleSnapshot, SessionSet
@@ -38,7 +38,7 @@ src/
 │   ├── mod.rs
 │   ├── cgroups.rs  # cgroup slice discovery and own-cgroup exclusion
 │   ├── netstat.rs  # interface counters, traffic ledger, external-traffic estimator
-│   ├── psi.rs      # PSI trigger watches for host and cgroup scopes
+│   ├── psi.rs      # PSI trigger watches for host and cgroup scopes; close/cooldown re-arm
 │   ├── sessions.rs # inotify session sources, tty idle probe, legacy sampler
 │   ├── signals.rs  # signalfd source
 │   └── procfs.rs   # host metrics; who/ps parser used by the legacy sampler
