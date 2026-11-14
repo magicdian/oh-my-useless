@@ -101,3 +101,26 @@ Deduplicated active tty sessions, added sshd tty correlation fallback, and docum
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Event-driven sensor architecture: child 1 domain and ports
+<!-- phronia-session: v=2 fp=823a172ff3592f2c -->
+
+**Date**: 2026-11-14
+**Task**: Event-driven sensor architecture: child 1 domain and ports
+**Branch**: `dev`
+
+### Summary
+
+Extracted a pure domain reducer, port traits, generation-based store, and transition journal; preserved behavior with a 20-row parity table; check passed and spec delta synced.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7a35773` | refactor(domain): extract pure policy domain, ports, and directive store |
+| `731154b` | docs(phronia): plan event-driven sensor architecture and record child 1 delta |
+
+### Status
+
+[OK] **Completed**
