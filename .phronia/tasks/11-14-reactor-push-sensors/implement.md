@@ -4,15 +4,15 @@
 
 1. [ ] Add `libc` to `Cargo.toml`; record the ADR reference in the commit message.
 2. [ ] Implement `src/sys.rs` with epoll, timerfd, signalfd, `pread`, non-blocking setup, and `AppError` conversion.
-3. [ ] Implement `src/runtime/reactor.rs` with the `EventSource` trait, token map, deadline timer, and bounded drain.
-4. [ ] Implement `SignalfdSource` and `TimerSource`; block process signals before spawning workers.
+3. [ ] Implement `src/runtime/reactor.rs` with the epoll set, token map, and timerfd deadline.
+4. [ ] Implement `SignalSource` with signalfd; block process signals before spawning workers.
 5. [ ] Implement `src/adapters/psi.rs` with `PsiOps`, trigger registration, `EBUSY` reopen, `POLLERR` rebuild, and capability probe.
-6. [ ] Implement `MemInfoSampler`/`LoadSampler` and the adaptive cadence; wire `SamplerSource`.
-7. [ ] Extend the domain with `PressureReading`, `PressureClass`, `PressureScope`, `SourceHealth`, and the pressure/quiet-window rules; add reducer tests.
-8. [ ] Implement the journal file sink and atomic state snapshot; extend `status` to read the state file.
-9. [ ] Replace the daemon sleep loop with the reactor; delete raw signal handlers and `sleep_with_interrupts`.
-10. [ ] Add reactor/PSI/journal/cadence tests.
-11. [ ] Update `.phronia/spec/backend/logging-guidelines.md` (journal file, transition-only logging) and `daemon-install-contracts.md` (status lines, state file path, capability reporting).
+6. [ ] Wire the procfs sampler in the daemon with `sampler_cadence`; no separate sampler source is needed.
+7. [ ] Extend the domain with `PressureReading`, `PressureClass`, `PressureScope`, the quiet-window rule, and slow start; add reducer tests.
+8. [ ] Implement the journal file sink and the line-based state snapshot; extend `status` to read the state file.
+9. [ ] Replace the daemon sleep loop with the reactor; keep raw signal handlers only for non-Linux.
+10. [ ] Add reactor/PSI/journal/cadence tests; gate Linux-only tests with `cfg(target_os = "linux")`.
+11. [ ] Record the config, status, and state-path changes in `spec-delta.md`; do not edit `.phronia/spec/**`.
 
 ## Validation
 
@@ -20,13 +20,15 @@
 cargo fmt --check
 cargo check
 cargo test
+# Type-check the Linux-only reactor/PSI path from a macOS development host.
+cargo check --tests --target x86_64-unknown-linux-gnu
 
 # steady state must block, not spin
 sudo strace -f -e trace=epoll_wait,poll -p "$(cat /run/useless.pid)" -c -w
 
 # capability + mode reporting
 useless status
-cat /run/useless/state.json
+cat /run/useless/state
 tail -n 5 /run/useless/journal.jsonl
 ```
 
@@ -47,7 +49,7 @@ finally:
 PY
 ```
 
-Expected: `journal.jsonl` shows a `psi.memory` transition to `suspended` within 100 ms of the pressure onset.
+Expected: `journal.jsonl` shows a `psi:memory` transition to `suspended` within 100 ms of the pressure onset.
 
 ## Risky files
 

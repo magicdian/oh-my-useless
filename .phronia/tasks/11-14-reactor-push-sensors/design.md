@@ -54,8 +54,8 @@ pub trait PsiOps {
 
 * One `PsiWatch` per `(class, scope, kind)` where `kind ∈ {some, full}`. Child 2 uses only the host scope and `some`; `full` is registered for memory and IO because the design uses it in the reducer.
 * Register by writing `"<kind> <enter_us> <window_us>"`. `enter_us = pressure_enter_ms × 1000`.
-* On `POLLPRI`: `pread(fd, 0, ..)` the file, parse both `some` and `full` lines, emit `Signal::Pressure`. The trigger only reports entry; do not wait for an exit event.
-* On `POLLERR`: close the fd, reopen, re-register; if that fails twice, emit `SourceHealth::Degraded` and stop watching this metric.
+* On `POLLPRI`: `pread(fd, 0, ..)` the file, parse both `some` and `full` lines, emit `Signal::Pressure`. The trigger only reports entry; do not wait for an exit event. Exit is decided by the quiet timer plus the next fallback sample (`MemAvailable` and load), which is the positive probe the state machine needs.
+* On `POLLERR`: close the fd, reopen, re-register; if that fails twice, emit `SourceDegraded { source, message }` and stop watching this metric.
 * Threshold changes require `close` + `open` + `write`; a second write on an armed fd returns `EBUSY` (identified by `errno`).
 * Capability probe: open `/proc/pressure/memory` `O_RDWR`, write a trigger, then immediately close. Failure marks `trigger_write=false` and the daemon runs sampler-only.
 
@@ -83,19 +83,25 @@ Lines are independent; a missing `full` line is normal for `cpu` at host scope.
 `runtime::journal::FileSink` writes to `/run/useless/journal.jsonl`:
 
 ```json
-{"ts":"2026-11-14T14:00:00.123Z","signal":"psi.memory","scope":"host","from":"running","to":"suspended","reason":["memory_pressure"],"budget_mb":0,"available_mb":612,"psi":{"some_avg10":2.1,"full_avg10":0.4}}
+{"ts_ms":1763128800123,"signal":"psi:memory","from":"running","to":"suspended","reasons":["memory_pressure"],"budget_mb":0,"available_mb":612}
 ```
 
-* Append on transition only. When the file exceeds 256 KiB, read it, keep the last half of the lines, and rewrite atomically via a temp file + rename.
+* Append on transition only. When the file exceeds 256 KiB, keep the most recent `capacity/2` entries and rewrite atomically via a temp file + rename.
 * A write failure disables the sink for the process lifetime, logs once, and leaves the in-memory ring intact.
 
-`/run/useless/state.json` is written atomically on transition and at most once per 30 s:
+`/run/useless/state` is written atomically on transition and at most once per 30 s. It is line-based `key=value` on purpose: `status` must not need a JSON parser in a std-only binary.
 
-```json
-{"mode":"suspended","reason":["memory_pressure"],"budget_mb":0,"available_mb":612,"capabilities":{"psi":true,"trigger_write":true,"cgroup_v2":true,"inotify":true},"last_transition":"..."}
+```text
+mode=suspended
+reasons=memory_pressure
+budget_mb=0
+available_mb=612
+capabilities=psi=ok trigger_write=ok cgroup_v2=ok inotify=ok
+last_transition=running -> suspended (psi:memory)
+summary=pressure=Pause load=12 mem_avail=31 ...
 ```
 
-Hand-rolled JSON is acceptable: fields are fixed and strings are enum names. Escape `"` and `\` defensively.
+Values are single-line. `summary` may contain `=`; parse on the first separator.
 
 ## 6. Status
 
@@ -108,13 +114,13 @@ budget: 0 MB / available 612 MB
 last_transition: 2026-11-14T14:00:00.123Z
 ```
 
-If `/run/useless/state.json` is missing (daemon not running, or older binary), print `daemon_state: unavailable` and do not fail.
+If `/run/useless/state` is missing (daemon not running, or older binary), print `daemon_state: unavailable` and do not fail.
 
 ## 7. Failure handling
 
 * `epoll_wait` `EINTR` → continue.
 * `epoll_wait` other error → rebuild the epoll set once; on a second failure, emit `CollectorDegraded` and run the sampler loop with a 1 s `poll` timeout (still event-first, but self-healing).
-* A source that panics is not tolerated: adapters return `Result`, and the reactor converts an error into `SourceHealth::Degraded` plus a dropped source. No `unwrap` on IO.
+* A source that panics is not tolerated: adapters return `Result`, and the reactor converts an error into `SourceDegraded { source, message }` plus a dropped source. No `unwrap` on IO.
 * `MemAvailable` unreadable → `Signal::Sample` is not emitted; the reducer keeps the last state and the daemon logs once. The existing fail-closed behavior for a failed sensor is preserved in the root.
 
 ## 8. Tests
@@ -124,6 +130,16 @@ If `/run/useless/state.json` is missing (daemon not running, or older binary), p
 * Journal: overflow halving, unwritable path, atomic state write (temp + rename).
 * Cadence: table test for the three modes and base values including `0` clamping to 1 s.
 
-## 9. Rollback
+## 9. Platform split
+
+All Linux-only code is `cfg(target_os = "linux")`. On non-Linux:
+
+* `Reactor::wait` sleeps until the sampler deadline and returns no events.
+* `SignalSource` and `PsiSource` are no-ops; the daemon installs raw signal handlers.
+* PSI parsing and capability types still compile so their tests run.
+
+This exists so `cargo check` and `cargo test` work on the macOS development host. The production target is Linux, and `cargo check --tests --target x86_64-unknown-linux-gnu` type-checks the gated code.
+
+## 10. Rollback
 
 Revert the child commit; the sampler path from child 1 remains. Remove `libc` from `Cargo.toml` only if no other child depends on it (children 3-5 do, so keep it).

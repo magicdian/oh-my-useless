@@ -43,7 +43,7 @@ pub enum Signal {
 }
 ```
 
-`PressureClass = { Cpu, Memory, Io }`. `PressureScope = Host | Cgroup(String)`. `PressureReading` carries `some`/`full` windows (`avg10`, `avg60`, `avg300`, `total`) as parsed from the PSI file. Signals are facts with timestamps, not decisions. Child 1 implements `Sample`, `Sessions`, and a precursor `SourceDegraded { source, message }`; child 2 replaces that precursor with the richer `SourceHealth` and adds `Pressure`, `ExternalTraffic`, `SessionIdle`, and `TimerFired`.
+`PressureClass = { Cpu, Memory, Io }`. `PressureScope = Host | Cgroup(String)`. `PressureReading` carries `some`/`full` windows (`avg10`, `avg60`, `avg300`, `total`) as parsed from the PSI file. Signals are facts with timestamps, not decisions. Child 1 implements `Sample`, `Sessions`, and a precursor `SourceDegraded { source, message }`; child 2 adds `Pressure` and keeps `SourceDegraded` for adapter failures. The richer `SourceHealth` and `ExternalTraffic`/`SessionIdle` variants land with the children that need them.
 
 ### 3.2 Reducer
 
@@ -99,7 +99,7 @@ pub struct PolicyOutput {
 * Register by writing `"some <stall_us> <window_us>"`; `full` uses a separate fd.
 * Wait with `poll`/`epoll` for `POLLPRI`; treat `POLLERR` as a health event.
 * A second write on an already-armed fd fails with `EBUSY`; to change a threshold, close and reopen.
-* The trigger reports entering the stall condition, not leaving it. Exit is detected by the quiet-window timer plus a fresh `pread(offset=0)` of `avg10`/`avg60`/`total`.
+* The trigger reports entering the stall condition, not leaving it. Exit is detected by the quiet-window timer plus the next fallback sample (`MemAvailable`, load); the PSI file is not re-read because triggers report entry only.
 * Notifications are rate-limited to one per tracking window; the reducer must not assume one event per incident.
 
 ### 4.2 cgroup scopes
@@ -119,7 +119,7 @@ Discover slices at startup and every 60 s (or SIGHUP). Default watch list: `kube
 ```
 
 * **Enter** is immediate and unconditional for any pressure or session signal. No debounce.
-* **Exit** requires all of: no pressure event for `resume_quiet_secs`, a positive probe at the end of the window (`some avg10` below the enter threshold, `MemAvailable > reserve + chunk`), and no active session. The probe is a legitimate timer-driven fallback because "absence of events" is not evidence of quiet.
+* **Exit** requires all of: no pressure event for `resume_quiet_secs`, a fresh fallback sample at the end of the window (`MemAvailable > reserve + chunk`, load below the pause threshold), and no active session. The fallback sample is the positive probe because the trigger does not report exits; "absence of events" is not evidence of quiet.
 * **Slow start**: after a resume, memory and network grow in three steps (25%, 50%, 100%) spaced across `resume_ramp_secs`; CPU follows the existing burst schedule.
 * `ReasonCode` is an ordered set; the highest-severity active reason is reported, all are journaled.
 
@@ -187,8 +187,8 @@ Unit additions: `OOMScoreAdjust=1000`, `IOSchedulingClass=idle`, `CPUWeight=10`,
 ## 9. Observability
 
 * In-memory ring: last 512 transitions, always available to `status` through the state snapshot file.
-* `/run/useless/journal.jsonl`: transition-only JSON Lines, bounded to ~256 KiB by halving on overflow. `/run` is tmpfs, so the file is capped by design and cleared on boot.
-* `/run/useless/state.json`: current mode, reason, budget, headroom, capabilities, last transition. Written on transition and at most once per 30 s heartbeat.
+* `/run/useless/journal.jsonl`: transition-only JSON Lines, bounded to ~256 KiB by keeping the last half. `/run` is tmpfs, so the file is capped by design and cleared on boot.
+* `/run/useless/state`: current mode, reasons, budget, available memory, capabilities, summary, and last transition as line-based `key=value`. Written on transition and at most once per 30 s heartbeat. Line-based rather than JSON so `status` needs no parser in a std-only binary.
 * `status` prints capabilities (`psi`, `cgroup_v2`, `inotify`, `trigger_write`), mode and reason, budget/headroom, and the last transition. Diagnostics stay on stderr; the status block stays on stdout.
 * Log-on-transition is preserved; no per-tick logs.
 
@@ -196,7 +196,7 @@ Unit additions: `OOMScoreAdjust=1000`, `IOSchedulingClass=idle`, `CPUWeight=10`,
 
 | Failure | Behavior |
 |---|---|
-| PSI missing or `trigger` write fails | `SourceHealth::Degraded`; sampler-only mode; log once; `status` shows it. |
+| PSI missing or `trigger` write fails | `SourceDegraded`; sampler-only mode; log once; `status` shows it. |
 | No cgroup v2 | Host PSI plus `MemAvailable` only. |
 | inotify unavailable | `who -u --ips` sampler at base cadence; behavior matches today. |
 | `MemAvailable` unreadable | `Suspended` (fail closed), same as today's sensor-error path. |
