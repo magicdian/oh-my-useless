@@ -167,6 +167,7 @@ Sensor section:
 * Updates are explicit. There is no background updater, timer, or automatic install.
 * The updater is the `self_update` crate's GitHub backend with `checksums` enabled, so the GitHub per-asset SHA-256 digest is verified before extraction.
 * Release assets must be named `useless-<target>.tar.gz`, contain `useless` at the archive root, and exist for every target the project publishes. The running binary matches the asset by its compile-time target triple.
+* The updater sets `asset_identifier(".tar.gz")`, so it selects only the tarball. The release also carries `useless-<target>.sha256` and `install.sh`; neither is installable. `self_update`'s matcher is substring-based on the target triple and asset order is not guaranteed, so without the identifier the `.sha256` sidecar can be selected and copied over the binary.
 * `useless update --check` performs no write and does not require root.
 * `useless update` requires root and writes `/usr/local/bin/useless` (`INSTALL_BIN_PATH`), not `current_exe()`.
 * `--version` accepts `X.Y.Z` and `vX.Y.Z`; it pins the release tag and may install an older version (rollback).
@@ -202,6 +203,7 @@ Sensor section:
 | `useless update --version` with no value or a flag value | Return an explicit parse error |
 | Missing release asset for the running target | Fail with the updater's asset error; never install a foreign architecture |
 | Digest mismatch | Abort before extraction; installed binary unchanged |
+| Update selects a `.sha256` sidecar | Failure; the installed path must be an ELF from the tar.gz. |
 | Update succeeds but service restart fails | Report the restart failure separately; the new binary is already in place |
 | `omv sync --check` detects drift | Exit non-zero; CI fails. |
 | PR edits `.omv/state.toml` or `.omv/finalizations.toml` | CI fails; version truth is pipeline-owned. |
@@ -301,7 +303,7 @@ Unit-test expectations:
 * unit-generation tests must assert the exact `MemoryHigh`/`MemoryMax` and `OOMScoreAdjust=1000` values (`src/install.rs`); cgroup discovery tests live in `src/adapters/cgroups.rs`
 * session tests must cover logind directory scanning, tty dedup, variable-length inotify event parsing, probe filtering/re-emission, atime handling, and watch re-add (`src/adapters/sessions.rs`); Linux-only cases are `cfg(target_os = "linux")`
 * network tests must cover the counter reader, estimator subtraction/own-equals-total/wrap, the pure `should_start_burst` gate, and the new config keys (`src/adapters/netstat.rs`, `src/domain/network.rs`, `src/config.rs`)
-* update tests must cover CLI parsing for `update`/`version`, tag normalisation (`X.Y.Z` and `vX.Y.Z`), and the configured install path, archive path, current version, and pinned tag (`src/cli.rs`, `src/update.rs`)
+* update tests must cover CLI parsing for `update`/`version`, tag normalisation (`X.Y.Z` and `vX.Y.Z`), the configured install path, archive path, current version, pinned tag, and `asset_identifier(".tar.gz")` (`src/cli.rs`, `src/update.rs`)
 * version tests must cover `normalize_tag` for bare and `v`-prefixed forms and the release transaction simulation (bootstrap → `omv bump` → whitelist → commit/tag) (`src/update.rs`)
 * Linux-only tests are `cfg(target_os = "linux")`; run `cross check --all-targets --target x86_64-unknown-linux-gnu` (Docker required, because `ring` needs a Linux C toolchain) when developing on another host
 
@@ -333,6 +335,7 @@ Assertion points:
 * Count all historical `pts/*` sessions as active forever.
 * Count duplicate rows for the same active `pts/N` as multiple interactive sessions.
 * Make `update` replace `current_exe()` instead of `INSTALL_BIN_PATH`.
+* Select a release asset by target triple alone; the `.sha256` sidecar also contains the target.
 * Add a background auto-update path without a signing and rollout design.
 * Publish a release asset name that the updater cannot match to its compile-time target.
 * Hand-edit the version in `Cargo.toml`, run `omv bump` locally, or push a manual release tag.
@@ -347,5 +350,6 @@ Assertion points:
 * Deduplicate tty identities before deriving user-visible `tty` and `ssh` counters.
 * Keep install behavior explicit across binary path, config path, service-manager path, and PID path.
 * Keep the release archive contract (`useless-<target>.tar.gz`, binary at root) in sync across `scripts/package.sh`, the release workflow, and `src/update.rs`.
+* Set `asset_identifier(".tar.gz")` and assert it in the updater config test.
 * Commit version surfaces only from the pipeline; keep PRs read-only for version truth; use bare OMV tags and normalize an optional `v` in the updater.
 * Close and cooldown-re-arm a fired PSI trigger; filter zero readings; verify start-limit placement by splitting the generated unit at `[Service]`.
