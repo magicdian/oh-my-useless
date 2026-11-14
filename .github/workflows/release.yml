@@ -123,6 +123,11 @@ jobs:
         with:
           ref: refs/tags/${{ needs.version.outputs.version }}
           token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload install script
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: gh release upload "$VERSION" scripts/install.sh --clobber
 
   upload:
     name: Upload ${{ matrix.target }}
