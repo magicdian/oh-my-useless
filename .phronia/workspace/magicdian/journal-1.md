@@ -147,3 +147,26 @@ Added a cfg-gated epoll reactor, signalfd, PSI trigger watcher with EBUSY reopen
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: Event-driven sensor architecture: child 3 memory budget and cgroup scopes
+<!-- phronia-session: v=2 fp=89617ae9cca29ccb -->
+
+**Date**: 2026-11-14
+**Task**: Event-driven sensor architecture: child 3 memory budget and cgroup scopes
+**Branch**: `dev`
+
+### Summary
+
+Wired a headroom-derived memory budget, replaced Vec allocation with a chunked mmap ledger, added cgroup slice pressure scopes and 60s refresh, and generated a self-containing systemd unit.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0d0cdd8` | feat(memory): add headroom budget, chunked ledger, and cgroup scopes |
+| `80a8af7` | chore(task): record cgroup memory plan and child 3 spec delta |
+
+### Status
+
+[OK] **Completed**
