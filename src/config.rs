@@ -93,6 +93,8 @@ pub struct NetworkConfig {
     pub enabled: bool,
     pub max_mbps: u32,
     pub connect_timeout_secs: u64,
+    pub external_traffic_kbps: u32,
+    pub probe_window_ms: u64,
     pub window: BurstWindow,
     pub targets: Vec<String>,
 }
@@ -160,6 +162,8 @@ impl Config {
                     enabled: true,
                     max_mbps: 5,
                     connect_timeout_secs: 3,
+                    external_traffic_kbps: 1024,
+                    probe_window_ms: 1000,
                     window: BurstWindow {
                         burst_secs_min: 15,
                         burst_secs_max: 45,
@@ -216,6 +220,8 @@ impl Config {
                     enabled: true,
                     max_mbps: 10,
                     connect_timeout_secs: 3,
+                    external_traffic_kbps: 1024,
+                    probe_window_ms: 1000,
                     window: BurstWindow {
                         burst_secs_min: 20,
                         burst_secs_max: 60,
@@ -272,6 +278,8 @@ impl Config {
                     enabled: true,
                     max_mbps: 20,
                     connect_timeout_secs: 3,
+                    external_traffic_kbps: 1024,
+                    probe_window_ms: 1000,
                     window: BurstWindow {
                         burst_secs_min: 30,
                         burst_secs_max: 90,
@@ -423,6 +431,12 @@ pub fn parse_config(content: &str) -> AppResult<Config> {
             (Some("network"), "max_mbps") => {
                 config.network.max_mbps = parse_u32(&entry.value, line)?
             }
+            (Some("network"), "external_traffic_kbps") => {
+                config.network.external_traffic_kbps = parse_u32(&entry.value, line)?
+            }
+            (Some("network"), "probe_window_ms") => {
+                config.network.probe_window_ms = parse_u64(&entry.value, line)?
+            }
             (Some("network"), "connect_timeout_secs") => {
                 config.network.connect_timeout_secs = parse_u64(&entry.value, line)?
             }
@@ -499,6 +513,8 @@ pub fn default_config_text() -> String {
          [network]\n\
          enabled = {network_enabled}\n\
          max_mbps = {network_max}\n\
+         external_traffic_kbps = {network_external}\n\
+         probe_window_ms = {network_probe}\n\
          connect_timeout_secs = {connect_timeout}\n\
          burst_secs_min = {network_burst_min}\n\
          burst_secs_max = {network_burst_max}\n\
@@ -539,6 +555,8 @@ pub fn default_config_text() -> String {
         memory_rest_max = config.memory.window.rest_secs_max,
         network_enabled = config.network.enabled,
         network_max = config.network.max_mbps,
+        network_external = config.network.external_traffic_kbps,
+        network_probe = config.network.probe_window_ms,
         connect_timeout = config.network.connect_timeout_secs,
         network_burst_min = config.network.window.burst_secs_min,
         network_burst_max = config.network.window.burst_secs_max,
@@ -701,6 +719,11 @@ fn validate_config(config: &Config) -> AppResult<()> {
     if config.memory.chunk_mb == 0 {
         return Err(boxed_error("memory.chunk_mb must be positive"));
     }
+    if config.network.probe_window_ms == 0 || config.network.probe_window_ms > 2000 {
+        return Err(boxed_error(
+            "network.probe_window_ms must be between 1 and 2000",
+        ));
+    }
     if config.network.enabled && config.network.targets.is_empty() {
         return Err(boxed_error(
             "network.targets cannot be empty when network is enabled",
@@ -807,6 +830,27 @@ mod tests {
     fn rejects_invalid_budget_values() {
         assert!(parse_config("reserve_percent = 100\n").is_err());
         assert!(parse_config("[memory]\nchunk_mb = 0\n").is_err());
+    }
+
+    #[test]
+    fn parses_network_gate_keys() {
+        let config = parse_config(
+            r#"
+            [network]
+            external_traffic_kbps = 2048
+            probe_window_ms = 500
+            "#,
+        )
+        .expect("config parses");
+
+        assert_eq!(config.network.external_traffic_kbps, 2048);
+        assert_eq!(config.network.probe_window_ms, 500);
+    }
+
+    #[test]
+    fn rejects_out_of_range_probe_window() {
+        assert!(parse_config("[network]\nprobe_window_ms = 0\n").is_err());
+        assert!(parse_config("[network]\nprobe_window_ms = 3000\n").is_err());
     }
 
     #[test]

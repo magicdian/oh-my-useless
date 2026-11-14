@@ -65,7 +65,8 @@ impl Sampler for ProcfsSampler {
 impl ProcfsSampler {
     fn read_network_rates(&mut self) -> AppResult<(u64, u64)> {
         let now = Instant::now();
-        let (rx_total, tx_total) = read_network_totals()?;
+        let totals = crate::adapters::netstat::read_totals(Path::new("/sys/class/net"))?;
+        let (rx_total, tx_total) = (totals.rx, totals.tx);
 
         let rates = if let Some((previous_time, previous_rx, previous_tx)) = self.last_net {
             let elapsed = now.duration_since(previous_time).as_secs_f64().max(1.0);
@@ -185,40 +186,6 @@ fn counts_from_active_sessions(
 ) -> (usize, usize) {
     let sessions = build_session_set(sessions_by_tty, ssh_ttys);
     (sessions.tty_count(), sessions.ssh_count())
-}
-
-fn read_network_totals() -> AppResult<(u64, u64)> {
-    let mut rx_total = 0u64;
-    let mut tx_total = 0u64;
-
-    for entry in fs::read_dir("/sys/class/net")? {
-        let entry = entry?;
-        let interface = entry.file_name();
-        let name = interface.to_string_lossy();
-        if name == "lo" {
-            continue;
-        }
-
-        let path = entry.path();
-        if !interface_is_up(&path) {
-            continue;
-        }
-
-        rx_total += read_u64(path.join("statistics/rx_bytes")).unwrap_or(0);
-        tx_total += read_u64(path.join("statistics/tx_bytes")).unwrap_or(0);
-    }
-
-    Ok((rx_total, tx_total))
-}
-
-fn interface_is_up(path: &Path) -> bool {
-    fs::read_to_string(path.join("operstate"))
-        .map(|value| value.trim() == "up")
-        .unwrap_or(false)
-}
-
-fn read_u64(path: impl AsRef<Path>) -> AppResult<u64> {
-    Ok(fs::read_to_string(path)?.trim().parse::<u64>()?)
 }
 
 fn parse_who_users(stdout: &str, active_tty_idle_secs: u64) -> BTreeMap<String, bool> {

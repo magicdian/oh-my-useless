@@ -1,13 +1,19 @@
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
+use std::path::Path;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::adapters::netstat::{self, RealNetOps, TrafficLedger};
+use crate::domain::should_start_burst;
 use crate::runtime::Store;
 
 pub fn run(store: Arc<Store>) {
     let mut cursor = 0usize;
+    let ledger = TrafficLedger::default();
+    let ops = RealNetOps;
+    let mut gate_warned = false;
 
     while !store.is_shutdown() {
         let state = store.snapshot();
@@ -17,9 +23,44 @@ pub fn run(store: Arc<Store>) {
         let duty_percent = state.directives.network.duty_percent;
         let timeout_secs = state.config.network.connect_timeout_secs;
         let burst_seconds = state.config.network.window.burst_secs_max.max(1);
+        let probe_window = Duration::from_millis(state.config.network.probe_window_ms.max(1));
 
         if !allowed || targets.is_empty() || max_mbps == 0 {
             thread::sleep(Duration::from_secs(1));
+            continue;
+        }
+
+        match netstat::estimate(
+            &ops,
+            &ledger,
+            Path::new("/sys/class/net"),
+            probe_window,
+            thread::sleep,
+        ) {
+            Ok(estimate)
+                if !should_start_burst(
+                    estimate.ingress_kbps,
+                    estimate.egress_kbps,
+                    state.config.network.external_traffic_kbps,
+                ) =>
+            {
+                eprintln!(
+                    "[useless] network burst skipped: external ingress={}kbps egress={}kbps",
+                    estimate.ingress_kbps, estimate.egress_kbps
+                );
+                thread::sleep(Duration::from_secs(1));
+                continue;
+            }
+            Ok(_) => {}
+            Err(error) => {
+                if !gate_warned {
+                    eprintln!("[useless] network gate unavailable, using max_mbps only: {error}");
+                    gate_warned = true;
+                }
+            }
+        }
+
+        if !store.network_allowed() {
             continue;
         }
 
@@ -32,6 +73,7 @@ pub fn run(store: Arc<Store>) {
 
         let _ = download_until_paused(
             &store,
+            &ledger,
             &target,
             max_bytes_per_sec,
             Duration::from_secs(burst_seconds),
@@ -43,6 +85,7 @@ pub fn run(store: Arc<Store>) {
 
 fn download_until_paused(
     store: &Store,
+    ledger: &TrafficLedger,
     target: &str,
     max_bytes_per_sec: u64,
     max_duration: Duration,
@@ -61,6 +104,7 @@ fn download_until_paused(
         parsed.path, parsed.host
     );
     stream.write_all(request.as_bytes())?;
+    ledger.add_tx(request.len() as u64);
 
     let started = Instant::now();
     let mut buffer = [0u8; 32 * 1024];
@@ -87,6 +131,7 @@ fn download_until_paused(
             Ok(0) => break,
             Ok(bytes_read) => {
                 window_bytes += bytes_read as u64;
+                ledger.add_rx(bytes_read as u64);
             }
             Err(error)
                 if error.kind() == std::io::ErrorKind::WouldBlock

@@ -1,4 +1,5 @@
 pub mod cgroups;
+pub mod netstat;
 pub mod procfs;
 pub mod psi;
 pub mod sessions;
