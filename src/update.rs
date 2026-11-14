@@ -124,6 +124,9 @@ fn configured_updater(
         .bin_name(BIN_NAME)
         .bin_install_path(Path::new(INSTALL_BIN_PATH))
         .bin_path_in_archive(BIN_NAME)
+        // The release also carries `useless-<target>.sha256` and `install.sh`;
+        // only the tarball is an installable asset.
+        .asset_identifier(".tar.gz")
         .check_install_path_writable(true)
         .current_version(current)
         .no_confirm(true)
@@ -190,6 +193,7 @@ mod tests {
         assert_eq!(updater.bin_name(), "useless");
         assert_eq!(updater.bin_install_path(), install_path);
         assert_eq!(updater.bin_path_in_archive(), "useless");
+        assert_eq!(updater.asset_identifier(), Some(".tar.gz"));
         assert_eq!(updater.current_version(), "2611.14.0");
         assert_eq!(updater.release_tag(), Some("2611.14.1"));
         assert!(updater.check_install_path_writable());
