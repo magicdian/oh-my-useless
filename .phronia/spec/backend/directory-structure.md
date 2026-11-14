@@ -21,6 +21,7 @@ src/
 ├── config.rs       # config paths, defaults, parsing, validation
 ├── daemon.rs       # composition root: sampler -> reducer -> store -> workers
 ├── install.rs      # install, uninstall, reload, status, service manager glue
+├── update.rs       # self-update policy: CLI options, root gate, GitHub Releases, restart decision
 ├── ports.rs        # Sampler, Clock, StatePublisher, JournalSink, EventSource traits
 ├── domain/
 │   ├── mod.rs      # public domain contract
@@ -49,7 +50,11 @@ src/
     └── network.rs  # network load worker
 
 scripts/
-└── package.sh      # release tarball builder
+└── package.sh      # release tarball builder (same layout as the release workflow)
+
+.github/workflows/
+├── ci.yml          # fmt, clippy, tests; macOS compile/test
+└── release.yml     # tag-driven test, version guard, multi-target archives
 
 Oracle-server-keep-alive-script-main/
 └── ...             # legacy shell reference, not the main implementation target
@@ -67,6 +72,7 @@ Use a dedicated module for each boundary:
 * operator-visible config model in `config.rs`,
 * composition and lifecycle in `daemon.rs`,
 * install/service-manager concerns in `install.rs`,
+* self-update policy and the GitHub release protocol in `update.rs`,
 * pure decisions in `domain/` (no filesystem, clock, or logging),
 * observation in `adapters/` (emits `Signal`, never decides),
 * shared directives and transition history in `runtime/`.

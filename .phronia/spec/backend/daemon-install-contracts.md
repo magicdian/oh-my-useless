@@ -13,6 +13,7 @@ Use this spec when a task changes any of the following:
 * CLI subcommands in `src/cli.rs` or `src/main.rs`
 * Config fields or defaults in `src/config.rs`
 * systemd or init.d integration in `src/install.rs`
+* Self-update behavior in `src/update.rs` or the release workflow under `.github/workflows/`
 * Daemon lifecycle, PID, signal, or reload behavior in `src/daemon.rs`
 * Policy transitions in `src/domain/` or observation sources in `src/adapters/`
 * Sensor/runtime behavior that changes operator-visible state transitions
@@ -41,6 +42,8 @@ This is infra/cross-layer because one change can affect:
 * `useless reload`
 * `useless status [--config <path>]`
 * `useless daemon [--config <path>]`
+* `useless update [--check] [--version <semver>] [--no-restart]`
+* `useless version` (also `--version`, `-V`)
 * `useless print-default-config`
 * `useless help`
 
@@ -154,6 +157,18 @@ Sensor section:
 * `install` regenerates the unit from the current config; `reload` does not.
 * `uninstall --purge` may remove `/etc/useless`; plain `uninstall` must leave config in place.
 
+#### Update behavior
+
+* Updates are explicit. There is no background updater, timer, or automatic install.
+* The updater is the `self_update` crate's GitHub backend with `checksums` enabled, so the GitHub per-asset SHA-256 digest is verified before extraction.
+* Release assets must be named `useless-<target>.tar.gz`, contain `useless` at the archive root, and exist for every target the project publishes. The running binary matches the asset by its compile-time target triple.
+* `useless update --check` performs no write and does not require root.
+* `useless update` requires root and writes `/usr/local/bin/useless` (`INSTALL_BIN_PATH`), not `current_exe()`.
+* `--version` accepts `X.Y.Z` and `vX.Y.Z`; it pins the release tag and may install an older version (rollback).
+* After a successful install, restart the service only when it is active. `--no-restart` skips the restart. A failed restart is reported as an error after the binary has already been replaced.
+* `USELESS_GITHUB_TOKEN`, when set and non-empty, is passed to the GitHub API.
+* Tag-driven releases must reject a tag that does not match `CARGO_PKG_VERSION`, because the updater compares semver values.
+
 ---
 
 ### 4. Validation & Error Matrix
@@ -166,6 +181,13 @@ Sensor section:
 | `active_tty_idle_secs = 0` | Config validation must fail |
 | Empty `network.targets` while network is enabled | Config validation must fail |
 | Non-root `install` or `uninstall` | Fail with explicit root-required error |
+| Non-root `useless update` | Fail with explicit root-required error before any network request |
+| Non-root `useless update --check` | Allowed; performs no write |
+| `useless update --version` with no value or a flag value | Return an explicit parse error |
+| Missing release asset for the running target | Fail with the updater's asset error; never install a foreign architecture |
+| Digest mismatch | Abort before extraction; installed binary unchanged |
+| Update succeeds but service restart fails | Report the restart failure separately; the new binary is already in place |
+| Release tag does not match `CARGO_PKG_VERSION` | Release workflow fails before creating the release |
 | Existing live PID in `/run/useless.pid` | Daemon start must fail instead of double-running |
 | Config reload parse failure | Keep old config active and log failure to stderr |
 | Missing systemd and missing init.d | `install` must fail with supported-service-manager error |
@@ -238,9 +260,10 @@ Expected result:
 
 At minimum, keep these checks passing when this contract changes:
 
-* `cargo fmt --check`
+* `cargo fmt --all --check`
+* `cargo clippy --all-targets --locked -- -D warnings`
 * `cargo check`
-* `cargo test`
+* `cargo test --all-targets --locked`
 
 Unit-test expectations:
 
@@ -252,13 +275,16 @@ Unit-test expectations:
 * unit-generation tests must assert the exact `MemoryHigh`/`MemoryMax` and `OOMScoreAdjust=1000` values (`src/install.rs`); cgroup discovery tests live in `src/adapters/cgroups.rs`
 * session tests must cover logind directory scanning, tty dedup, variable-length inotify event parsing, probe filtering/re-emission, atime handling, and watch re-add (`src/adapters/sessions.rs`); Linux-only cases are `cfg(target_os = "linux")`
 * network tests must cover the counter reader, estimator subtraction/own-equals-total/wrap, the pure `should_start_burst` gate, and the new config keys (`src/adapters/netstat.rs`, `src/domain/network.rs`, `src/config.rs`)
-* Linux-only tests are `cfg(target_os = "linux")`; run `cargo check --tests --target x86_64-unknown-linux-gnu` when developing on another host
+* update tests must cover CLI parsing for `update`/`version`, tag normalisation (`X.Y.Z` and `vX.Y.Z`), and the configured install path, archive path, current version, and pinned tag (`src/cli.rs`, `src/update.rs`)
+* Linux-only tests are `cfg(target_os = "linux")`; run `cross check --all-targets --target x86_64-unknown-linux-gnu` (Docker required, because `ring` needs a Linux C toolchain) when developing on another host
 
 Manual-test expectations for install/runtime changes:
 
 * `useless install`
 * `useless reload`
 * `useless status`
+* `useless version`
+* `useless update --check`
 * `useless uninstall`
 * real SSH session test verifying pause and recovery timing
 
@@ -279,6 +305,9 @@ Assertion points:
 * Add or rename install paths in `src/install.rs` without updating path contracts here.
 * Count all historical `pts/*` sessions as active forever.
 * Count duplicate rows for the same active `pts/N` as multiple interactive sessions.
+* Make `update` replace `current_exe()` instead of `INSTALL_BIN_PATH`.
+* Add a background auto-update path without a signing and rollout design.
+* Publish a release asset name that the updater cannot match to its compile-time target.
 
 #### Correct
 
@@ -286,3 +315,4 @@ Assertion points:
 * Treat SSH detection as active-session classification, not raw historical login counting.
 * Deduplicate tty identities before deriving user-visible `tty` and `ssh` counters.
 * Keep install behavior explicit across binary path, config path, service-manager path, and PID path.
+* Keep the release archive contract (`useless-<target>.tar.gz`, binary at root) in sync across `scripts/package.sh`, the release workflow, and `src/update.rs`.
