@@ -515,10 +515,12 @@ mod linux_tests {
                 return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
             }
             self.opens.fetch_add(1, Ordering::Relaxed);
-            let fd = sys::open_rw(Path::new("/dev/null"))?;
-            let raw = fd.raw();
-            std::mem::forget(fd);
-            Ok(raw)
+            // /dev/null is not epoll-pollable (EPERM); eventfd is.
+            let fd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK) };
+            if fd < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(fd)
         }
 
         fn write(&self, _fd: RawFd, bytes: &[u8]) -> std::io::Result<()> {
