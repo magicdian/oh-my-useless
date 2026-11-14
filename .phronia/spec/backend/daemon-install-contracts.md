@@ -14,6 +14,7 @@ Use this spec when a task changes any of the following:
 * Config fields or defaults in `src/config.rs`
 * systemd or init.d integration in `src/install.rs`
 * Self-update behavior in `src/update.rs` or the release workflow under `.github/workflows/`
+* Version truth under `.omv/`, `src/generated/version.rs`, or the version/release jobs under `.github/workflows/`
 * Daemon lifecycle, PID, signal, or reload behavior in `src/daemon.rs`
 * Policy transitions in `src/domain/` or observation sources in `src/adapters/`
 * Sensor/runtime behavior that changes operator-visible state transitions
@@ -167,7 +168,18 @@ Sensor section:
 * `--version` accepts `X.Y.Z` and `vX.Y.Z`; it pins the release tag and may install an older version (rollback).
 * After a successful install, restart the service only when it is active. `--no-restart` skips the restart. A failed restart is reported as an error after the binary has already been replaced.
 * `USELESS_GITHUB_TOKEN`, when set and non-empty, is passed to the GitHub API.
-* Tag-driven releases must reject a tag that does not match `CARGO_PKG_VERSION`, because the updater compares semver values.
+* Release tags are bare OMV versions (`2611.14.1`); `--version` normalizes an optional `v` prefix to the bare tag.
+
+#### Versioning and release
+
+* `.omv/state.toml` is the single version truth. `.omv/config.toml` declares `release_mode = "pipeline"` and `requires_omv = "2611.2.1"`.
+* `Cargo.toml`, `Cargo.lock`, and `src/generated/version.rs` are synchronized outputs. `Cargo.lock` is refreshed with `cargo metadata` because the v1 Rust target does not update it.
+* Local and AI callers use only `omv current`, `omv plan`, and `omv sync --check`. In pipeline mode, `omv bump` and `omv sync` without `--as-release` fail with `release_mode_denied`.
+* Managed versions are date triplets `YYMM.dd.BuildNumber`; the bootstrap state is `2611.14.0` and the first pipeline release is `2611.14.1`.
+* The release workflow runs on push to `main` or `workflow_dispatch`: test → `omv bump --expect <current> --now <UTC date> --as-release` → `omv sync --check` → `cargo metadata` → path whitelist → commit `chore(release): <version>` → push to `main` → annotated tag `<version>`.
+* The release commit may contain only `.omv/**`, `Cargo.toml`, `Cargo.lock`, and `src/generated/version.rs`.
+* CI runs `omv sync --check` on push and PR. Pull requests must not change `.omv/state.toml` or `.omv/finalizations.toml`, and `.omv/config.toml` must keep `release_mode = "pipeline"`.
+* `GITHUB_TOKEN` must be allowed to push to `main`; on a protected branch, use a GitHub App or PAT with bypass permission. Do not make the build depend on a tag push created by `GITHUB_TOKEN`, because that event does not start a new workflow run.
 
 ---
 
@@ -187,7 +199,11 @@ Sensor section:
 | Missing release asset for the running target | Fail with the updater's asset error; never install a foreign architecture |
 | Digest mismatch | Abort before extraction; installed binary unchanged |
 | Update succeeds but service restart fails | Report the restart failure separately; the new binary is already in place |
-| Release tag does not match `CARGO_PKG_VERSION` | Release workflow fails before creating the release |
+| `omv sync --check` detects drift | Exit non-zero; CI fails. |
+| PR edits `.omv/state.toml` or `.omv/finalizations.toml` | CI fails; version truth is pipeline-owned. |
+| `omv bump` or `omv sync` in pipeline mode without `--as-release` | Fail with `release_mode_denied`. |
+| Release diff outside `.omv/**`, `Cargo.toml`, `Cargo.lock`, `src/generated/version.rs` | Abort before commit. |
+| Manual release tag pushed without the pipeline | No release is built; the build consumes the pipeline tag in the same run. |
 | Existing live PID in `/run/useless.pid` | Daemon start must fail instead of double-running |
 | Config reload parse failure | Keep old config active and log failure to stderr |
 | Missing systemd and missing init.d | `install` must fail with supported-service-manager error |
@@ -264,6 +280,8 @@ At minimum, keep these checks passing when this contract changes:
 * `cargo clippy --all-targets --locked -- -D warnings`
 * `cargo check`
 * `cargo test --all-targets --locked`
+* `omv current --json` and `omv sync --check --json`
+* `omv bump --dry-run --as-release --now <date> --json`
 
 Unit-test expectations:
 
@@ -276,6 +294,7 @@ Unit-test expectations:
 * session tests must cover logind directory scanning, tty dedup, variable-length inotify event parsing, probe filtering/re-emission, atime handling, and watch re-add (`src/adapters/sessions.rs`); Linux-only cases are `cfg(target_os = "linux")`
 * network tests must cover the counter reader, estimator subtraction/own-equals-total/wrap, the pure `should_start_burst` gate, and the new config keys (`src/adapters/netstat.rs`, `src/domain/network.rs`, `src/config.rs`)
 * update tests must cover CLI parsing for `update`/`version`, tag normalisation (`X.Y.Z` and `vX.Y.Z`), and the configured install path, archive path, current version, and pinned tag (`src/cli.rs`, `src/update.rs`)
+* version tests must cover `normalize_tag` for bare and `v`-prefixed forms and the release transaction simulation (bootstrap → `omv bump` → whitelist → commit/tag) (`src/update.rs`)
 * Linux-only tests are `cfg(target_os = "linux")`; run `cross check --all-targets --target x86_64-unknown-linux-gnu` (Docker required, because `ring` needs a Linux C toolchain) when developing on another host
 
 Manual-test expectations for install/runtime changes:
@@ -308,6 +327,8 @@ Assertion points:
 * Make `update` replace `current_exe()` instead of `INSTALL_BIN_PATH`.
 * Add a background auto-update path without a signing and rollout design.
 * Publish a release asset name that the updater cannot match to its compile-time target.
+* Hand-edit the version in `Cargo.toml`, run `omv bump` locally, or push a manual release tag.
+* Make the release build depend on a tag push created by `GITHUB_TOKEN`.
 
 #### Correct
 
@@ -316,3 +337,4 @@ Assertion points:
 * Deduplicate tty identities before deriving user-visible `tty` and `ssh` counters.
 * Keep install behavior explicit across binary path, config path, service-manager path, and PID path.
 * Keep the release archive contract (`useless-<target>.tar.gz`, binary at root) in sync across `scripts/package.sh`, the release workflow, and `src/update.rs`.
+* Commit version surfaces only from the pipeline; keep PRs read-only for version truth; use bare OMV tags and normalize an optional `v` in the updater.

@@ -43,18 +43,27 @@ src/
 │   ├── signals.rs  # signalfd source
 │   └── procfs.rs   # host metrics; who/ps parser used by the legacy sampler
 ├── error.rs        # AppResult / boxed_error helpers
+├── generated/
+│   └── version.rs  # OMV runtime export (generated; not a Rust module)
 └── workers/
     ├── mod.rs      # worker registration
     ├── cpu.rs      # CPU load worker
     ├── memory.rs   # chunked mmap ledger with fresh headroom checks
     └── network.rs  # network load worker
 
+.omv/
+├── config.toml     # release_mode=pipeline, version format/policy
+├── state.toml      # single version truth (YYMM.dd.N)
+├── targets.toml    # Rust target → Cargo.toml + src/generated/version.rs
+├── ai/             # generated agent/spec contract (committed)
+└── skills/         # generated helper guidance (committed)
+
 scripts/
 └── package.sh      # release tarball builder (same layout as the release workflow)
 
 .github/workflows/
-├── ci.yml          # fmt, clippy, tests; macOS compile/test
-└── release.yml     # tag-driven test, version guard, multi-target archives
+├── ci.yml          # fmt, clippy, tests; macOS; OMV drift + PR version-truth guard
+└── release.yml     # main/manual: OMV bump, commit, tag, multi-target upload
 
 Oracle-server-keep-alive-script-main/
 └── ...             # legacy shell reference, not the main implementation target
@@ -78,6 +87,8 @@ Use a dedicated module for each boundary:
 * shared directives and transition history in `runtime/`.
 
 Do not collapse these concerns into `main.rs`.
+
+Version truth lives under `.omv/`; `src/generated/version.rs` is generated output and must not be edited by hand.
 
 ### Rule: Respect the layer direction
 
