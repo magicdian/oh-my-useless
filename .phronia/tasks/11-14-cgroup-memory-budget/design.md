@@ -5,7 +5,7 @@ Shared architecture lives in `../11-14-event-driven-sensor-architecture/design.m
 ## 1. Scope discovery (`src/adapters/cgroups.rs`)
 
 ```rust
-pub struct ScopeSet { pub watched: Vec<PathBuf>, pub missing: Vec<String>, pub own: PathBuf }
+pub struct ScopeSet { pub watched: Vec<PathBuf>, pub missing: Vec<String> }
 
 pub fn discover(spec: &[String], cgroup_root: &Path, own: &Path) -> ScopeSet;
 ```
@@ -48,16 +48,16 @@ pub struct Ledger { chunks: Vec<Chunk>, chunk_bytes: usize }
 
 impl Ledger {
     pub fn reconcile<F>(&mut self, target: u64, mut can_grow: F)
-    where F: FnMut(u64) -> bool;
+    where F: FnMut(u64, u64) -> bool;
 }
 ```
 
 Growth protocol per chunk:
 
-1. Ask `can_grow(chunk_bytes)`; the closure performs a **fresh** read of `MemAvailable` and the latest pressure reading. It never uses the reducer's cached sample.
+1. Ask `can_grow(current, chunk_bytes)`; the closure performs a **fresh** read of `MemAvailable`. It never uses the reducer's cached sample. PSI pressure is enforced by the directive gate: `Suspended` sets `allowed=false`, and the worker releases before the next growth pass.
 2. If it returns false, stop; the ledger stays below the requested target.
 3. `mmap(NULL, chunk, PROT_READ|WRITE, MAP_PRIVATE|ANONYMOUS|MAP_NORESERVE)`; write one byte per 4096-byte page to make the pages resident.
-4. On `mmap` failure, emit a health signal, keep the current chunks, and retry on the next directive change at half the chunk size; never panic.
+4. On `mmap` failure, log once, keep the current chunks, and stop growth; the next directive generation retries at the configured chunk size; never panic.
 
 Shrink: newest chunk first; `madvise(MADV_DONTNEED)`, then `munmap`. `Suspended` reconciles to zero in one pass. `Drop` releases every chunk.
 
@@ -65,7 +65,7 @@ The closure is the safety invariant: no code path may grow the ledger without it
 
 ## 4. Reducer integration
 
-* A `Pressure` signal with `scope = Cgroup("kubepods.slice")` enters `Suspended` with reason `MemoryPressure` or `IoPressure` and the scope recorded in the transition.
+* A `Pressure` signal with `scope = Cgroup("kubepods.slice")` enters `Suspended` with reason `MemoryPressure` or `IoPressure`; the state file writes `scope=kubepods.slice` and the summary appends `scope=kubepods.slice`.
 * `Sample` carries `mem_available_bytes` and `mem_total_bytes`; the reducer computes the budget and publishes it in `Directives::memory`.
 * `Cooling` uses `caution_duty_percent` on the ratio cap; `Suspended` publishes zero and the worker releases immediately.
 * Slow start scales the effective `duty_percent` through 25/50/100 across `resume_ramp_secs`; the budget formula itself is unchanged.
@@ -94,12 +94,12 @@ MemoryMax  = ceiling_mb + 128
 
 `ceiling_mb` is clamped to at least 64 MB so a disabled or tiny memory module still yields a valid unit. `OOMScoreAdjust=1000` makes the kernel prefer the daemon. `MemoryHigh` throttles before `MemoryMax` kills, and both are inside the unit's own cgroup, so the business pods are never the first sacrifice.
 
-`install` regenerates the unit from the current config; `reload` does not. `status` prints the derived ceiling so the operator can spot a stale unit.
+`install` regenerates the unit from the current config; `reload` does not. `status` prints the live `budget_mb`, `reserve_mb`, `available_mb`, and cgroup `scope` from the state file, so the operator can compare them with the unit limits and spot a stale unit.
 
 ## 7. Tests
 
 * Budget table with the six cases from the PRD.
-* Ledger invariant with a scripted `can_grow` sequence, including a false result mid-growth.
+* Ledger invariant with a scripted `can_grow(current, chunk)` sequence, including a false result mid-growth.
 * Release-on-zero test.
 * Unit generation snapshot for `MemTotal = 2048 MB`, `max_percent = 15`, `max_absolute_mb = 0`; and a second case with `max_absolute_mb = 128`.
 * Config parse/round-trip and validation failures.

@@ -140,7 +140,7 @@ budget        = min(ratio_cap, headroom_cap, absolute_cap?)
 ### 6.2 Ledger
 
 * Allocation unit: `chunk_mb` (default 16 MiB) of anonymous private memory via `mmap`.
-* Grow: allocate one chunk only if `MemAvailable - reserve >= current + chunk` and the latest pressure reading is below the enter threshold. Touch one byte per page so the pages are resident.
+* Grow: allocate one chunk only if `MemAvailable - reserve >= current + chunk`. PSI pressure is enforced by the directive gate (`Suspended` ⇒ `allowed=false` ⇒ immediate release). Touch one byte per page so the pages are resident.
 * Shrink: `madvise(MADV_DONTNEED)` then `munmap` per chunk, newest first.
 * Suspend: release every chunk immediately from the worker thread woken by the condvar.
 * No `Vec::resize` of a multi-hundred-MB region anywhere. No single allocation larger than `chunk_mb`.

@@ -5,13 +5,13 @@
 1. [ ] Add `reserve_mb`, `reserve_percent`, `max_absolute_mb`, `chunk_mb`, and `[sensor].watch_slices` to `config.rs`; update defaults, `default_config_text`, and `validate_config`.
 2. [ ] Implement `domain::budget` with the table tests from AC3.2.
 3. [ ] Implement `adapters/cgroups.rs::discover` and the 60 s/SIGHUP refresh; exclude the daemon's own cgroup.
-4. [ ] Wire per-slice `*.pressure` watches through the child 2 PSI adapter; add scope-aware reasons to the reducer.
+4. [ ] Wire per-slice `*.pressure` watches through the child 2 PSI adapter via `PsiSpec`; report the cgroup scope in the summary and the state file.
 5. [ ] Replace the memory worker with the `mmap` ledger; implement the fresh `can_grow` closure, chunked growth, `madvise` shrink, and zero-on-suspend.
 6. [ ] Implement the ledger invariant and release tests with scripted headroom.
 7. [ ] Derive `MemoryHigh`/`MemoryMax` in `install.rs`; add `OOMScoreAdjust=1000`, `IOSchedulingClass=idle`, `CPUWeight=10`, `Restart=on-failure`, and start limits.
 8. [ ] Extend `status` with budget, headroom, reserve, primary scope, and cgroup health.
 9. [ ] Add the unit-generation snapshot test and the scope-discovery fake-directory test.
-10. [ ] Update `.phronia/spec/backend/daemon-install-contracts.md` with the new keys, unit guarantees, and status fields; update README's memory section.
+10. [ ] Record the config keys, unit guarantees, state fields, and tests in `spec-delta.md`; do not edit `.phronia/spec/**`. README updates belong to child 5.
 
 ## Validation
 
@@ -19,6 +19,7 @@
 cargo fmt --check
 cargo check
 cargo test
+cargo check --tests --target x86_64-unknown-linux-gnu
 
 # unit contents
 systemctl show useless -p OOMScoreAdjust -p MemoryHigh -p MemoryMax -p IOSchedulingClass

@@ -22,7 +22,7 @@ This child contains the fix for the 2026-11-13 incident.
 * R3.5 New config keys and validation: `reserve_mb`, `reserve_percent`, `[memory].max_absolute_mb`, `[memory].chunk_mb`, `[sensor].watch_slices`. Old configs must parse unchanged; `print-default-config` includes the new keys.
 * R3.6 `install.rs` derives the unit's `MemoryHigh`/`MemoryMax` from the effective memory ceiling and `MemTotal`, and adds `OOMScoreAdjust=1000`, `IOSchedulingClass=idle`, `CPUWeight=10`, `Restart=on-failure`, and start limits while keeping `Nice=19`.
 * R3.7 `status` reports the current budget, headroom, reserve, and the primary suspension scope.
-* R3.8 A per-cgroup pressure event suspends synthetic work with the slice name in the reason, so an operator can tell business pressure from host pressure.
+* R3.8 A per-cgroup pressure event suspends synthetic work and reports the slice in the state file's `scope` line and in the summary, so an operator can tell business pressure from host pressure.
 * R3.9 Hosts without cgroup v2 or without configured slices keep working with host PSI plus headroom.
 
 ## Acceptance criteria
