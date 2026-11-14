@@ -33,6 +33,15 @@
       "last_error": null,
       "log_ref": ".phronia/.runtime/integration-logs/omv-pipeline-versioning-2026-11-14T12-08-33-160Z.log",
       "updated_at": "2026-11-14T12:08:34.430Z"
+    },
+    "spec_sync": {
+      "status": "synced",
+      "commit": "ccfd71fb963852b85c1251e13d25fd4b01ef7d66",
+      "synced_at": "2026-11-14T12:09:28.418Z",
+      "refs": [
+        ".phronia/tasks/11-14-omv-pipeline-versioning"
+      ],
+      "mode": "agent"
     }
   }
 }
