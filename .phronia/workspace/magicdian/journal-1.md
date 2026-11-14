@@ -124,3 +124,26 @@ Extracted a pure domain reducer, port traits, generation-based store, and transi
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: Event-driven sensor architecture: child 2 reactor and PSI
+<!-- phronia-session: v=2 fp=659bae7887466c66 -->
+
+**Date**: 2026-11-14
+**Task**: Event-driven sensor architecture: child 2 reactor and PSI
+**Branch**: `dev`
+
+### Summary
+
+Added a cfg-gated epoll reactor, signalfd, PSI trigger watcher with EBUSY reopen and POLLERR rebuild, pressure quiet window and slow start, adaptive sampling, journal/state files, and four new config keys.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `15003cd` | feat(sensor): add epoll reactor and PSI-driven suspension |
+| `a35a01d` | chore(task): record reactor and PSI plan and child 2 spec delta |
+
+### Status
+
+[OK] **Completed**
