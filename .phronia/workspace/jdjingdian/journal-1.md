@@ -192,3 +192,40 @@ Restricted self-update downloads to the tar.gz release asset so the .sha256 side
 ### Next Steps
 
 - Release 2611.14.3 and run an unpinned useless update from 2611.14.2 on oracle-sg-tx-forward.
+
+
+## Session 6: Ship 2611.14.3 and validate self-update
+<!-- phronia-session: v=2 fp=10d5ddf1fc4f4609 -->
+
+**Date**: 2026-11-14
+**Task**: Ship 2611.14.3 and validate self-update
+**Branch**: `dev`
+
+### Summary
+
+Released the PSI re-arm and archive-only update fixes as 2611.14.3, installed it on oracle-sg-tx-forward, and validated the pinned self-update end to end.
+
+### Main Changes
+
+- The release pipeline published 2611.14.3 with four archives, sha256 sidecars, and install.sh.
+- The server now runs 2611.14.3; the unit reports a 5-minute start limit and self-containment settings.
+- A pinned update re-downloaded the tar.gz, remained an ELF, and restarted the service with Result=success.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `41ffd22` | chore(release): 2611.14.3 |
+
+### Testing
+
+- [OK] Idle CPU 0 ticks in 6s; no pressure fds left open; io pressure transitions back to load pressure after the quiet window.
+- [OK] useless update --check reports 2611.14.3 up to date; dev/main CI and the Release workflow are green.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Keep the 2611.14.2/old backups; the next release can exercise an unpinned update.
